@@ -75,22 +75,16 @@ class SemanticAnalyzer:
             raise ValueError(f"Line {self.current_line}: Invalid declaration start '{token}'")
 
     def variable_declaration(self):
-        data_type = self.peek_next_token()
-        self.data_type()
+        type_token = self.peek_next_token()
+        self.match_and_advance(["Link", "Bubble"], "data type")
         var_name = self.lexemes[self.current_index]
         self.match_and_advance(["Identifier"], "variable name")
+        self.match_and_advance(["="], "assignment")
         
-        if var_name in self.symbol_table:
-            raise ValueError(f"Line {self.current_line}: Variable '{var_name}' already declared")
-        
-        if data_type == "Link":
-            value = self.Link_tail()  # Assign the value
-        # Handle other types similarly...
-
-        self.match_and_advance([";"], "variable declaration end")
-        
-        if value is not None:
-            self.symbol_table[var_name] = {"type": data_type, "value": value, "is_array": False, "dimensions": []}
+        # Evaluate the expression
+        value = self.evaluate_expression()
+        self.symbol_table[var_name] = {"type": type_token, "value": value}
+        self.match_and_advance([";"], "declaration end")
 
     def Link_tail(self):
         if self.peek_next_token() == "=":
@@ -783,9 +777,27 @@ class SemanticAnalyzer:
 
     def display(self):
         self.match_and_advance(["Display"], "display statement")
-        display_str = self.out_print()
-        self.match_and_advance([";"], "display statement end")
-        self.display_output.append(display_str)
+        output = []
+        
+        # Handle single or multiple arguments
+        while self.peek_next_token() not in [";"]:
+            if self.peek_next_token() == '"':
+                self.match_and_advance(['"'], "string open")
+                string_content = self.lexemes[self.current_index]
+                self.match_and_advance(["Piecelit"], "string content")
+                self.match_and_advance(['"'], "string close")
+                output.append(string_content)
+            elif self.peek_next_token() == "Identifier":
+                var_name = self.lexemes[self.current_index]
+                if var_name not in self.symbol_table:
+                    raise ValueError(f"Line {self.current_line}: Undefined variable '{var_name}'")
+                output.append(str(self.symbol_table[var_name]["value"]))
+                self.match_and_advance(["Identifier"], "variable")
+            if self.peek_next_token() == ",":
+                self.match_and_advance([","], "separator")
+        
+        self.display_output.append("".join(output))
+        self.match_and_advance([";"], "display end")
 
     def out_print(self):
         token = self.peek_next_token()
@@ -1307,68 +1319,47 @@ class SemanticAnalyzer:
             self.match_and_advance([";"], "return end")
             return return_value
 
-    def evaluate_expression(self, start, end_or_arith=None):
-        if isinstance(start, (int, float)) and isinstance(end_or_arith, tuple):  # Handling arith tuple
-            stack = [start]
-            expr = end_or_arith
-            while expr:
-                op, value = expr[0], expr[1]
-                stack.append(value)
-                if len(stack) >= 2:
-                    b = stack.pop()
-                    a = stack.pop()
-                    if op == "+":
-                        stack.append(a + b)
-                    elif op == "-":
-                        stack.append(a - b)
-                    elif op == "*":
-                        stack.append(a * b)
-                    elif op == "/":
-                        if b == 0:
-                            raise ValueError(f"Line {self.current_line}: Division by zero")
-                        stack.append(a / b)
-                    elif op == "%":
-                        if b == 0:
-                            raise ValueError(f"Line {self.current_line}: Modulo by zero")
-                        stack.append(a % b)
-                expr = expr[2] if len(expr) > 2 else None
-            return stack[0]
-        else:  # Original start_index, end_index case
-            start_index, end_index = start, end_or_arith
-            stack = []
-            i = start_index
-            while i < end_index:
-                token = self.tokens[i]
-                lexeme = self.lexemes[i]
-                if token in ["Linklit", "Bubblelit", "Identifier"]:
-                    if token == "Identifier":
-                        value = self.lookup_symbol(lexeme, "expression evaluation")["value"]
-                    else:
-                        value = float(lexeme) if token == "Linklit" else lexeme
-                    stack.append(value)
-                elif token in ["+", "-", "*", "/", "%"]:
-                    if len(stack) < 2:
-                        raise ValueError(f"Line {self.current_line}: Invalid expression, not enough operands for {token}")
-                    b = stack.pop()
-                    a = stack.pop()
-                    if token == "+":
-                        stack.append(a + b)
-                    elif token == "-":
-                        stack.append(a - b)
-                    elif token == "*":
-                        stack.append(a * b)
-                    elif token == "/":
-                        if b == 0:
-                            raise ValueError(f"Line {self.current_line}: Division by zero")
-                        stack.append(a / b)
-                    elif token == "%":
-                        if b == 0:
-                            raise ValueError(f"Line {self.current_line}: Modulo by zero")
-                        stack.append(a % b)
-                i += 1
-            if len(stack) != 1:
-                raise ValueError(f"Line {self.current_line}: Invalid expression, too many operands")
-            return stack[0]
+    def evaluate_expression(self):
+        # Get the first operand
+        if self.peek_next_token() == "Linklit":
+            result = float(self.lexemes[self.current_index])
+            self.match_and_advance(["Linklit"], "literal")
+        elif self.peek_next_token() == "Identifier":
+            var_name = self.lexemes[self.current_index]
+            if var_name not in self.symbol_table:
+                raise ValueError(f"Line {self.current_line}: Undefined variable '{var_name}'")
+            result = self.symbol_table[var_name]["value"]
+            self.match_and_advance(["Identifier"], "variable")
+        else:
+            raise ValueError(f"Line {self.current_line}: Expected operand, found '{self.peek_next_token()}'")
+
+        # Continue while there are operators
+        while self.peek_next_token() in ["+", "-", "*", "/"]:
+            op = self.peek_next_token()
+            self.match_and_advance([op], "operator")
+            
+            if self.peek_next_token() == "Linklit":
+                next_val = float(self.lexemes[self.current_index])
+                self.match_and_advance(["Linklit"], "literal")
+            elif self.peek_next_token() == "Identifier":
+                next_var = self.lexemes[self.current_index]
+                if next_var not in self.symbol_table:
+                    raise ValueError(f"Line {self.current_line}: Undefined variable '{next_var}'")
+                next_val = self.symbol_table[next_var]["value"]
+                self.match_and_advance(["Identifier"], "variable")
+            else:
+                raise ValueError(f"Line {self.current_line}: Expected operand after '{op}'")
+
+            if op == "+":
+                result += next_val
+            elif op == "-":
+                result -= next_val
+            elif op == "*":
+                result *= next_val
+            elif op == "/":
+                result /= next_val if next_val != 0 else float('inf')
+        
+        return result
     
     def format_expression(self, expr):
         if not expr:
