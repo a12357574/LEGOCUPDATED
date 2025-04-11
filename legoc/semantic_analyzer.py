@@ -791,7 +791,7 @@ class SemanticAnalyzer:
                 var_name = self.lexemes[self.current_index]
                 if var_name not in self.symbol_table:
                     raise ValueError(f"Line {self.current_line}: Undefined variable '{var_name}'")
-                output.append(str(self.symbol_table[var_name]["value"]))
+                output.append(str(int(self.symbol_table[var_name]["value"])))
                 self.match_and_advance(["Identifier"], "variable")
             if self.peek_next_token() == ",":
                 self.match_and_advance([","], "separator")
