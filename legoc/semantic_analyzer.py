@@ -113,14 +113,6 @@ class SemanticAnalyzer:
             return value
         raise ValueError(f"Line {self.current_line}: Expected Identifier or Linklit, found '{token}'")
 
-    def Link_express(self):
-        if self.peek_next_token() in ["+", "-", "*", "/", "%"]:
-            op = self.peek_next_token()
-            self.arith_op()
-            left = self.value()  # This retrieves the value of the identifier
-            right = self.value()  # This retrieves the value of the identifier
-            return (op, left, right)
-        return None
 
     def subs_functions(self):
         while self.peek_next_token() == "Subs":
@@ -232,13 +224,7 @@ class SemanticAnalyzer:
         raise ValueError(f"Line {self.current_line}: Expected Identifier or Linklit, found '{token}'")
 
     def Link_express(self):
-        if self.peek_next_token() in ["+", "-", "*", "/", "%"]:
-            op = self.peek_next_token()
-            self.arith_op()
-            value = self.value()
-            rest = self.Link_express()
-            return (op, value, rest) if rest else (op, value)
-        return None
+        return self.expression()
 
     def Link_init(self):
         if self.peek_next_token() == "=":
@@ -249,7 +235,7 @@ class SemanticAnalyzer:
             val2 = self.value()
             expr = self.Link_express()
             result = self.evaluate_expression(val1, (op, val2, expr) if expr else (op, val2))
-            return result
+            return int(result)
         return None
 
     def Link_add(self):
@@ -825,7 +811,7 @@ class SemanticAnalyzer:
             else:
                 result += str(int(value))  # Convert float to int for display
             result += self.out_show()
-        return result
+        return int(result)
 
     def out_show(self):
         result = ""
@@ -841,7 +827,7 @@ class SemanticAnalyzer:
                 value = self.evaluate_expression(value, expr)
             result += " " + str(value)
             result += self.out_show()
-        return result
+        return int(result)
 
     def out_dis(self):
         if self.peek_next_token() == ",":
@@ -1043,7 +1029,7 @@ class SemanticAnalyzer:
         result = self.evaluate_condition(val1, op, val2)
         self.last_condition_str = f"{val1} {op} {val2}"
         self.last_comparison_str = f"{val1} {op} {val2}"  # For compound conditions
-        return result
+        return int(result)
 
     def condi(self, prev_result):
         if self.peek_next_token() in ["==", "!=", "<", ">", ">=", "<=", "||", "&&", "!!"]:
@@ -1108,13 +1094,67 @@ class SemanticAnalyzer:
         self.output.append(f"{var_name}: {current_value} {op} {value} => {new_value}")
 
     def expression(self):
-        val = self.value()
-        arith = self.arith()
-        if arith:
-            initial_val = val
-            val = self.evaluate_expression(val, arith)
-            self.output.append(f"Expression: {initial_val} {self.format_expression(arith)} => {val}")
-        return val
+        """
+        Parses addition and subtraction: expr -> term (( '+' | '-' ) term)*
+        """
+        result = self.term()
+        while self.peek_next_token() in ["+", "-"]:
+            op = self.peek_next_token()
+            self.match_and_advance([op], "operator")
+            next_term = self.term()
+            if op == "+":
+                result += next_term
+            elif op == "-":
+                result -= next_term
+        return int(result)
+    
+    def term(self):
+        """
+        Parses multiplication, division, and modulo: term -> factor (( '*' | '/' | '%' ) factor)*
+        """
+        result = self.factor()
+        while self.peek_next_token() in ["*", "/", "%"]:
+            op = self.peek_next_token()
+            self.match_and_advance([op], "operator")
+            next_factor = self.factor()
+            if op == "*":
+                result *= next_factor
+            elif op == "/":
+                if next_factor == 0:
+                    raise ValueError(f"Line {self.current_line}: Division by zero")
+                result /= next_factor
+            elif op == "%":
+                if next_factor == 0:
+                    raise ValueError(f"Line {self.current_line}: Modulo by zero")
+                result %= next_factor
+        return int(result)
+    
+    def factor(self):
+        """
+        Parses literals, variables, parentheses, and unary operators:
+        factor -> '(' expr ')' | Identifier | Linklit | Bubblelit | '-' factor
+        """
+        token = self.peek_next_token()
+        if token == "(":
+            self.match_and_advance(["("], "open parenthesis")
+            result = self.expression()
+            self.match_and_advance([")"], "close parenthesis")
+            return int(result)
+        elif token == "Identifier":
+            var_name = self.lexemes[self.current_index]
+            if var_name not in self.symbol_table:
+                raise ValueError(f"Line {self.current_line}: Undefined variable '{var_name}'")
+            self.match_and_advance(["Identifier"], "variable")
+            return self.symbol_table[var_name]["value"]
+        elif token in ["Linklit", "Bubblelit"]:
+            value = float(self.lexemes[self.current_index])
+            self.match_and_advance([token], "literal")
+            return value
+        elif token == "-":  # Handle unary minus
+            self.match_and_advance(["-"], "unary minus")
+            return -self.factor()
+        else:
+            raise ValueError(f"Line {self.current_line}: Expected factor, found '{token}'")
 
     def ass_com(self):
         token = self.peek_next_token()
@@ -1320,46 +1360,8 @@ class SemanticAnalyzer:
             return return_value
 
     def evaluate_expression(self):
-        # Get the first operand
-        if self.peek_next_token() == "Linklit":
-            result = float(self.lexemes[self.current_index])
-            self.match_and_advance(["Linklit"], "literal")
-        elif self.peek_next_token() == "Identifier":
-            var_name = self.lexemes[self.current_index]
-            if var_name not in self.symbol_table:
-                raise ValueError(f"Line {self.current_line}: Undefined variable '{var_name}'")
-            result = self.symbol_table[var_name]["value"]
-            self.match_and_advance(["Identifier"], "variable")
-        else:
-            raise ValueError(f"Line {self.current_line}: Expected operand, found '{self.peek_next_token()}'")
-
-        # Continue while there are operators
-        while self.peek_next_token() in ["+", "-", "*", "/"]:
-            op = self.peek_next_token()
-            self.match_and_advance([op], "operator")
-            
-            if self.peek_next_token() == "Linklit":
-                next_val = float(self.lexemes[self.current_index])
-                self.match_and_advance(["Linklit"], "literal")
-            elif self.peek_next_token() == "Identifier":
-                next_var = self.lexemes[self.current_index]
-                if next_var not in self.symbol_table:
-                    raise ValueError(f"Line {self.current_line}: Undefined variable '{next_var}'")
-                next_val = self.symbol_table[next_var]["value"]
-                self.match_and_advance(["Identifier"], "variable")
-            else:
-                raise ValueError(f"Line {self.current_line}: Expected operand after '{op}'")
-
-            if op == "+":
-                result += next_val
-            elif op == "-":
-                result -= next_val
-            elif op == "*":
-                result *= next_val
-            elif op == "/":
-                result /= next_val if next_val != 0 else float('inf')
-        
-        return result
+        result = self.expression()
+        return int(result)
     
     def format_expression(self, expr):
         if not expr:
@@ -1369,7 +1371,7 @@ class SemanticAnalyzer:
         result = f"{op} {value}"
         if rest:
             result += " " + self.format_expression(rest)
-        return result
+        return int(result)
 
     def evaluate_condition(self, left, op, right):
         if op == "==":
