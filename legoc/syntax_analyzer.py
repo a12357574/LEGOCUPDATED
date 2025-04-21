@@ -269,9 +269,7 @@ class SyntaxAnalyzer:
             self.Piece_tail()
         elif self.peek_next_token() == "=":
             self.match_and_advance(["="], "assignment")  # Rule 57
-            self.match_and_advance(['"'], "string literal open")
             self.match_and_advance(["Piecelit"], "Piece literal")
-            self.match_and_advance(['"'], "string literal close")
             self.Piece_init()
         # Rule 56: λ implicit
 
@@ -281,9 +279,7 @@ class SyntaxAnalyzer:
             self.match_and_advance([","], "variable separator")  # Rule 58
             self.match_and_advance(["Identifier"], "variable name")
             self.match_and_advance(["="], "assignment")
-            self.match_and_advance(['"'], "string literal open")
             self.match_and_advance(["Piecelit"], "Piece literal")
-            self.match_and_advance(['"'], "string literal close")
             self.Piece_init()
         # Rule 59: λ implicit
 
@@ -328,9 +324,7 @@ class SyntaxAnalyzer:
             self.match_and_advance(["Bubblelit"], "Bubble literal")  # Rule 14
             self.Bubble_constail()
         elif data_type == "Piece":
-            self.match_and_advance(['"'], "string literal open")
             self.match_and_advance(["Piecelit"], "Piece literal")  # Rule 15
-            self.match_and_advance(['"'], "string literal close")
             self.Piece_constail()
         elif data_type == "Flip":
             self.match_and_advance("Fliplit", "Flip literal")  # Rule 16
@@ -362,9 +356,7 @@ class SyntaxAnalyzer:
             self.match_and_advance([","], "constant separator")  # Rule 69
             self.match_and_advance(["Identifier"], "constant name")
             self.match_and_advance(["="], "assignment")
-            self.match_and_advance(['"'], "string literal open")
             self.match_and_advance(["Piecelit"], "Piece literal")
-            self.match_and_advance(['"'], "string literal close")
             self.Piece_constail()
         # Rule 70: λ implicit
 
@@ -634,9 +626,7 @@ class SyntaxAnalyzer:
     def out_print(self):
         token = self.peek_next_token()
         if token == '"':
-            self.match_and_advance(['"'], "string literal open")
             self.match_and_advance(["Piecelit"], "string literal content")
-            self.match_and_advance(['"'], "string literal close")
             self.out_show()
         elif token == "Identifier":
             self.match_and_advance(["Identifier"], "variable")
@@ -655,9 +645,7 @@ class SyntaxAnalyzer:
     def out_dis(self):
         if self.peek_next_token() == ",":
             self.match_and_advance([","], "output separator")
-            self.match_and_advance(['"'], "string literal open")
             self.match_and_advance(["Piecelit"], "string literal content")
-            self.match_and_advance(['"'], "string literal close")
             self.out_show()
         elif self.peek_next_token() in ["+", "-", "*", "/", "%"]:
             self.arith_op()
