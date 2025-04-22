@@ -1,0 +1,48 @@
+PEMDAS - 14
+Build
+Link x = 2 + 3 * 4;
+Link Pane(){
+Display x;
+}
+Destroy
+
+PEMDAS - 20
+Build
+Link x = (2 + 3) * 4;
+Link Pane(){
+Display x;
+}
+Destroy
+
+PEMDAS - 9
+Build
+Link x = 10 - 2 / 2;
+Link Pane(){
+Display x;
+}
+Destroy
+
+PEMDAS - -2
+Build
+Link x = -5 + 3;
+Link Pane(){
+Display x;
+}
+Destroy
+
+FIBONACCI
+Build
+Link n = 6;
+Link a = 0;
+Link b = 1;
+Link c;
+Link Pane(){
+Put (Link i = 0; i < n; i++) {
+    Display a;
+    c = a + b;
+    a = b;
+    b = c;
+}
+}
+Destroy
+
