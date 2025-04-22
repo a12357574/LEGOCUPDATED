@@ -893,7 +893,7 @@ class SyntaxAnalyzer:
         self.condition()
         self.match_and_advance([";"], "condition separator")
         self.update_express()
-        self.match_and_advance([";"], "update separator")
+        #self.match_and_advance([";"], "update separator") no ; after ++ or --
         self.match_and_advance([")"], "for params close")
         self.match_and_advance(["{"], "for body open")
         self.body(is_main_function=False)
