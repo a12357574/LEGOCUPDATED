@@ -87,10 +87,10 @@ class SyntaxAnalyzer:
         self.data_type()  # Matches "Link", "Bubble", etc.
         next_token = self.peek_next_token()
         if data_type == "Link" and next_token not in ["Identifier", "Pane"]:
-            raise SyntaxError(f"Line {self.current_line}: Expected 'Identifier' or 'Pane' after 'Link', found '{next_token}'")
+            raise SyntaxError(f"Line {self.current_line}: Expected 'Identifier' or 'Pane' after 'Link', found '{next_token}' in variable declarations")
         elif next_token != "Identifier":
             raise SyntaxError(f"Line {self.current_line}: Expected 'Identifier' after '{data_type}', found '{next_token}'")
-        self.match_and_advance(["Identifier"], "variable name")
+        self.match_and_advance(["Identifier"], "variable declaration")
         if data_type == "Link":
             self.Link_tail()
         elif data_type == "Bubble":

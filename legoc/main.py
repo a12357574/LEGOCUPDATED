@@ -282,14 +282,17 @@ def process_input(event=None, analyze=False):
                     word = ""
                     lexeme_output.insert(tk.END, "Space\n")
                     token_output.insert(tk.END, "Space\n")
-                elif char == "\n":
-                    state = "xz"
-                    word = ""
+                #elif ord(char) == 10:  # 10 is ASCII for newline
+                    #state = 0
+                    #lexeme_output.insert(tk.END, "Newline\n")
+                    #token_output.insert(tk.END, "Newline\n")
+                elif char.isupper():
+                    output_text.insert(tk.END, f"Line {line_number + 1}: Starting with Uppercase in Identifier is not Allowed!!!\n")
+                    state = "0"
                 elif not char.isspace():
                     output_text.insert(tk.END, f"Line {line_number + 1}: Lexical Error\n")
-                    state = "x"
+                    state = "0"
 
-            
             elif state == 'x':
                 if char.islower():
                         word = ""
@@ -2312,7 +2315,7 @@ def process_input(event=None, analyze=False):
                 if char == " " or char == "\n":
                     state = 0
                     word = ""
-                    target_word = "="
+                    target_word = "<"
                     lexeme_output.insert(tk.END, f"{target_word}\n")
                     token_output.insert(tk.END, f"{target_word}\n")
                     if char == " ":
