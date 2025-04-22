@@ -46,3 +46,11 @@ Put (Link i = 0; i < n; i++) {
 }
 Destroy
 
+PRINT NUMBERS FROM 1 TO 10
+Build
+Link Pane(){
+Put (Link i = 1; i < 11; i++) {
+    Display i;
+}
+}
+Destroy
