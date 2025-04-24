@@ -2,6 +2,7 @@ from re import S
 import tkinter as tk
 from tkinter import ttk
 from tkinter import filedialog
+from tkinter import simpledialog
 from syntax_analyzer import SyntaxAnalyzer
 from semantic_analyzer import SemanticAnalyzer
 def run_lexical_analysis():

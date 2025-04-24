@@ -608,11 +608,15 @@ class SyntaxAnalyzer:
             expected = ["Ifsnap", "Change", "Identifier", "Create", "Display", "Do", "Put"]
             raise SyntaxError(f"Line {self.current_line}: Expected '{', '.join(expected)}', found '{token}' in statement")
 
-    # CFG Rule 115: <create> → Create ( Identifier ) ;
+    # CFG Rule 115: <create> → Create ( Identifier ) ; # added [] for user inputting in arrays
     def create(self):
         self.match_and_advance(["Create"], "input statement")
         self.match_and_advance(["("], "input open")
         self.match_and_advance(["Identifier"], "input variable")
+        if self.peek_next_token() == "[": #optional array in Create
+            self.match_and_advance(["["], "array open")
+            self.expression() # array index parsing
+            self.match_and_advance(["]"], "array close")
         self.match_and_advance([")"], "input close")
         self.match_and_advance([";"], "input statement end")
 
@@ -907,7 +911,7 @@ class SyntaxAnalyzer:
             self.data_type()
             self.match_and_advance(["Identifier"], "variable")
             self.match_and_advance(["="], "assignment")
-            self.match_and_advance(["Linklit"], "Link literal")
+            self.expression()
             self.arith()
         elif token == "Identifier":
             self.match_and_advance(["Identifier"], "variable")
