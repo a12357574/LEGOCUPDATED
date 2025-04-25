@@ -630,7 +630,9 @@ class SyntaxAnalyzer:
     def out_print(self):
         token = self.peek_next_token()
         if token == '"':
+            self.match_and_advance(['"'], "string quotation display start")
             self.match_and_advance(["Piecelit"], "string literal content")
+            self.match_and_advance(['"'], "string quotation display end")
             self.out_show()
         elif token == "Identifier":
             self.match_and_advance(["Identifier"], "variable")
