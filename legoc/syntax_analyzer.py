@@ -994,7 +994,12 @@ class SyntaxAnalyzer:
             self.match_and_advance([";"], "return end")
         elif token == "Rebrick":
             self.match_and_advance(["Rebrick"], "return statement")  # Rule 154
-            self.match_and_advance(["Linklit"], "return value")  # Assuming 0 as Linklit
+            # Allow both Identifier and Linklit
+            next_token = self.peek_next_token()
+            if next_token in ["Identifier", "Linklit"]:
+                self.match_and_advance([next_token], "return value")
+            else:
+                raise SyntaxError(f"Line {self.current_line}: Expected Identifier or Linklit, found '{next_token}' in return statement")
             self.match_and_advance([";"], "return end")
         elif token == "}":
             return

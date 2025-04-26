@@ -55,7 +55,7 @@ class SemanticAnalyzer:
         self.match_and_advance(["{"], "main function body open")
         self.body(is_main_function=True)
         self.void()
-        self.match_and_advance(["}"], "main function body close")
+        #redundant self.match_and_advance(["}"], "main function body close")
         self.match_and_advance(["Destroy"], "program end")
 
     def global_declaration(self):
@@ -726,11 +726,11 @@ class SemanticAnalyzer:
     def body(self, is_main_function=False):
         print(f"body: Starting at index {self.current_index}, tokens={self.tokens[self.current_index:self.current_index+6]}")
         return_value = None
-        
+
         while self.peek_next_token() and self.peek_next_token() not in ["}", None]:
             token = self.peek_next_token()
             print(f"body: Processing token={token}, lexeme={self.lexemes[self.current_index]}")
-            
+
             if token in ["Link", "Bubble", "Piece", "Flip"]:
                 self.statements()
             elif token in ["Ifsnap", "Change", "Do", "Put", "Display", "Create"]:
@@ -738,38 +738,40 @@ class SemanticAnalyzer:
             elif token == "Identifier":
                 next_token = self.next_next_token()
                 if next_token == "(":
-                    saved_index = self.current_index
                     func_name = self.lexemes[self.current_index]
                     self.function_call()
-                    if func_name not in self.symbol_table:
-                        raise ValueError(f"Line {self.current_line}: Undefined function '{func_name}'")
                 else:
                     self.slist()
             elif token == "Rebrick":
                 self.match_and_advance(["Rebrick"], "return statement")
-                var_name = self.lexemes[self.current_index]
-                self.match_and_advance(["Identifier"], "return value")
-                if var_name not in self.symbol_table:
-                    raise ValueError(f"Line {self.current_line}: Undefined variable '{var_name}'")
-                return_value = self.symbol_table[var_name]["value"]
+                next_token = self.peek_next_token()
+                if next_token == "Identifier":
+                    var_name = self.lexemes[self.current_index]
+                    self.match_and_advance(["Identifier"], "return value")
+                    if var_name not in self.symbol_table:
+                        raise ValueError(f"Line {self.current_line}: Undefined variable '{var_name}'")
+                    return_value = self.symbol_table[var_name]["value"]
+                elif next_token == "Linklit":
+                    return_value = float(self.lexemes[self.current_index])
+                    self.match_and_advance(["Linklit"], "return value")
+                else:
+                    raise ValueError(f"Line {self.current_line}: Expected Identifier or Linklit, found '{next_token}'")
                 self.match_and_advance([";"], "return end")
                 break
             elif token == "Revoid":
-                self.void()
+                if is_main_function:
+                    self.void()
                 break
             else:
                 raise ValueError(f"Line {self.current_line}: Unexpected token '{token}' in body")
-        
-        # Handle function vs main function differently
-        if not is_main_function:
-            return return_value
-            
-        # For main function, handle Revoid and closing brace
-        self.void()
-        self.match_and_advance(["}"], "main function body close")
-        
+
+        if is_main_function:
+            self.match_and_advance(["}"], "main function body close")
+
         print(f"body: Ended at index {self.current_index}")
         return return_value
+
+
     
     def statements(self):
         token = self.peek_next_token()
@@ -1440,57 +1442,58 @@ class SemanticAnalyzer:
 
     def function_call(self):
         func_name = self.lexemes[self.current_index]
-        self.match_and_advance(["Identifier"], "function name")
+        print(f"function_call: Calling {func_name}")
         
-        # Save current state
+        # Save state
         saved_state = {
             'index': self.current_index,
-            'tokens': self.tokens.copy(),
-            'lexemes': self.lexemes.copy(),
-            'symbol_table': self.symbol_table.copy()
+            'tokens': self.tokens,
+            'lexemes': self.lexemes,
+            'symbol_table': self.symbol_table
         }
         
-        # Get parameters and validate function exists
-        function_info = saved_state['symbol_table'][func_name]
-        
-        # Handle parameters
+        # Match function call syntax (in main tokens)
+        self.match_and_advance(["Identifier"], "function name")
         self.match_and_advance(["("], "param list open")
-        param_values = self.param()
+        params = self.param()
         self.match_and_advance([")"], "param list close")
         self.match_and_advance([";"], "function call end")
         
-        # Create new scope with parameters
-        function_scope = saved_state['symbol_table'].copy()
-        param_names = function_info["params"]
+        # Lookup function info
+        func_info = saved_state['symbol_table'].get(func_name)
+        if not func_info or func_info.get("type") != "function":
+            raise ValueError(f"Line {self.current_line}: Undefined function '{func_name}'")
         
-        # Initialize parameters with values
-        for param_name, param_value in zip(param_names, param_values):
-            function_scope[param_name] = {
-                "type": "Link",
-                "value": float(param_value),
-                "is_array": False,
-                "dimensions": []
-            }
+        # Create a new symbol table for the function scope
+        self.symbol_table = saved_state['symbol_table'].copy()
         
-        # Set up function execution environment
-        self.tokens = function_info["body_tokens"]
-        self.lexemes = function_info["body_lexemes"]
-        self.current_index = 0
-        self.symbol_table = function_scope
+        # Bind parameter values to the function's symbol table
+        param_names = func_info.get("params", [])
+        if len(params) != len(param_names):
+            raise ValueError(f"Line {self.current_line}: Incorrect number of arguments for '{func_name}'")
+        for param_name, param_value in zip(param_names, params):
+            if param_name in self.symbol_table:
+                self.symbol_table[param_name]["value"] = param_value
+            else:
+                raise ValueError(f"Line {self.current_line}: Parameter '{param_name}' not found in symbol table")
         
         # Execute function body
-        try:
-            result = self.body(is_main_function=False)
-            if result is None and "result" in self.symbol_table:
-                result = self.symbol_table["result"]["value"]
-        finally:
-            # Restore original state
-            self.current_index = saved_state['index']
-            self.tokens = saved_state['tokens']
-            self.lexemes = saved_state['lexemes']
-            self.symbol_table = saved_state['symbol_table']
+        self.tokens = func_info["body_tokens"]
+        self.lexemes = func_info["body_lexemes"]
+        self.current_index = 0
         
-        return result
+        self.body(is_main_function=False)
+        
+        # Restore
+        self.tokens = saved_state['tokens']
+        self.lexemes = saved_state['lexemes']
+        self.symbol_table = saved_state['symbol_table']
+        
+        # Advance past the function call tokens
+        self.current_index = saved_state['index'] + 5
+
+
+
 
     def param(self):
         params = []
@@ -1531,15 +1534,28 @@ class SemanticAnalyzer:
 
     def void(self):
         token = self.peek_next_token()
+        print(f"void: token={token}")
         if token == "Revoid":
             self.match_and_advance(["Revoid"], "return void")
             self.match_and_advance([";"], "return end")
         elif token == "Rebrick":
             self.match_and_advance(["Rebrick"], "return statement")
-            return_value = float(self.lexemes[self.current_index])
-            self.match_and_advance(["Linklit"], "return value")
-            self.match_and_advance([";"], "return end")
-            return return_value
+            # Allow both Identifier and Linklit
+            next_token = self.peek_next_token()
+            if next_token in ["Identifier", "Linklit"]:
+                if next_token == "Identifier":
+                    var_name = self.lexemes[self.current_index]
+                    self.match_and_advance(["Identifier"], "return value")
+                    if var_name not in self.symbol_table:
+                        raise ValueError(f"Line {self.current_line}: Undefined variable '{var_name}'")
+                    return_value = self.symbol_table[var_name]["value"]
+                else:  # Linklit
+                    return_value = float(self.lexemes[self.current_index])
+                    self.match_and_advance(["Linklit"], "return value")
+                self.match_and_advance([";"], "return end")
+                return return_value
+            else:
+                raise ValueError(f"Line {self.current_line}: Expected Identifier or Linklit, found '{next_token}' in return statement")
 
     def evaluate_expression(self):
         print(f"evaluate_expression: Starting at index {self.current_index}, tokens={self.tokens[self.current_index:self.current_index+5]}")
