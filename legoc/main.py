@@ -69,6 +69,7 @@ def run_semantic_analysis():
     lexemes = lexeme_output.get("1.0", tk.END).splitlines()
     input_text = input_entry.get("1.0", tk.END)
     lines = input_text.splitlines()
+    user_input_storage.clear()
 
     # Remove empty lines from raw input
     tokens = [t.strip() for t in tokens if t.strip()]
@@ -83,7 +84,7 @@ def run_semantic_analysis():
         return
 
     # Create and run semantic analyzer
-    analyzer = SemanticAnalyzer(tokens, lexemes, lines)
+    analyzer = SemanticAnalyzer(tokens, lexemes, lines, user_input_storage, semantic_output_text)
     try:
         result = analyzer.analyze()
         semantic_output_text.delete("1.0", tk.END)
@@ -6061,9 +6062,53 @@ syntax_output_text.bind("<Button-1>", lambda e: "break")
 semantic_output_text = tk.Text(semantic_tab, bg="black", fg="white", font=("Consolas", 12),
                       state="normal")
 semantic_output_text.pack(fill="both", expand=True)
-semantic_output_text.bind("<Key>", lambda e: "break")
-semantic_output_text.bind("<Button-1>", lambda e: "break")
+#semantic_output_text.bind("<Key>", lambda e: "break") bindings that prevent input
+#semantic_output_text.bind("<Button-1>", lambda e: "break") bindings that prevent input
 
+# Add a button to submit user input
+submit_input_button = tk.Button(semantic_tab, 
+    text="Submit Input",
+    command=lambda: store_user_input(),
+    bg="#004080", fg="white", font=("Arial", 12, "bold"),
+    padx=20, pady=10, relief=tk.RAISED, bd=3)
+submit_input_button.pack(side="bottom", fill="x")
+
+# Add a button to clear inputs
+clear_input_button = tk.Button(semantic_tab, 
+    text="Clear Inputs",
+    command=lambda: clear_user_inputs(),
+    bg="#004080", fg="white", font=("Arial", 12, "bold"),
+    padx=20, pady=10, relief=tk.RAISED, bd=3)
+clear_input_button.pack(side="bottom", fill="x")
+
+# Function to store user input
+user_input_storage = []  # List to store inputs in order
+def store_user_input():
+    input_text = semantic_output_text.get("1.0", tk.END).strip()
+    if input_text:
+        user_input_storage.append(input_text)
+        semantic_output_text.delete("1.0", tk.END)  # Clear the box after submission
+        semantic_output_text.insert(tk.END, "Input submitted. Re-run Semantic Analyzer to continue.\n")
+    else:
+        semantic_output_text.delete("1.0", tk.END)
+        semantic_output_text.insert(tk.END, "Please enter a valid input.\n")
+submit_input_button = tk.Button(semantic_tab, 
+    text="Submit Input",
+    command=store_user_input,
+    bg="#004080", fg="white", font=("Arial", 12, "bold"),
+    padx=20, pady=10, relief=tk.RAISED, bd=3)
+submit_input_button.pack(side="bottom", fill="x")
+# Function to clear inputs
+def clear_user_inputs():
+    user_input_storage.clear()
+    semantic_output_text.delete("1.0", tk.END)
+    semantic_output_text.insert(tk.END, "Inputs cleared. Enter new inputs as needed.\n")
+clear_input_button = tk.Button(semantic_tab, 
+    text="Clear Inputs",
+    command=clear_user_inputs,
+    bg="#004080", fg="white", font=("Arial", 12, "bold"),
+    padx=20, pady=10, relief=tk.RAISED, bd=3)
+clear_input_button.pack(side="bottom", fill="x")
 # --- TOKEN HEADER AND BOX ---
 token_table_frame = tk.Frame(root, bg="#004080", bd=2)
 token_table_frame.place(relx=0.81, rely=0.15, relwidth=0.18, relheight=0.8)

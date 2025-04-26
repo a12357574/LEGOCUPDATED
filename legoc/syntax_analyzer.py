@@ -269,7 +269,9 @@ class SyntaxAnalyzer:
             self.Piece_tail()
         elif self.peek_next_token() == "=":
             self.match_and_advance(["="], "assignment")  # Rule 57
+            self.match_and_advance(['"'], "string quotation display start")
             self.match_and_advance(["Piecelit"], "Piece literal")
+            self.match_and_advance(['"'], "string quotation display end")
             self.Piece_init()
         # Rule 56: λ implicit
 
@@ -279,7 +281,9 @@ class SyntaxAnalyzer:
             self.match_and_advance([","], "variable separator")  # Rule 58
             self.match_and_advance(["Identifier"], "variable name")
             self.match_and_advance(["="], "assignment")
+            self.match_and_advance(['"'], "string quotation display start")
             self.match_and_advance(["Piecelit"], "Piece literal")
+            self.match_and_advance(['"'], "string quotation display end")
             self.Piece_init()
         # Rule 59: λ implicit
 
@@ -539,7 +543,10 @@ class SyntaxAnalyzer:
                 self.statements()
                 self.slist()
             elif token in ["Ifsnap", "Change", "Do", "Put", "Display", "Create", "Identifier"]:
-                self.slist()
+                if token == "Identifier" and self.peek_two_tokens_ahead() == "(":
+                    self.function_call()  # Handle function calls
+                else:
+                    self.slist()
             elif token in ["Revoid", "Rebrick"]:
                 self.void()
                 break  # Defer to <void>
@@ -594,10 +601,12 @@ class SyntaxAnalyzer:
         print(f"stateset: token={token}")
         if token in ["Ifsnap", "Change"]:
             self.condi_stat()
-        elif token == "Identifier" and self.peek_two_tokens_ahead() == "(":
-            self.function_call()
         elif token == "Identifier":
-            self.var_assign()
+            # Check if next token is '(' for function call
+            if self.next_next_token() == "(":
+                self.function_call()
+            else:
+                self.var_assign()
         elif token == "Create":
             self.create()
         elif token == "Display":

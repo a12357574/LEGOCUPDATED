@@ -1,5 +1,6 @@
+import tkinter as tk #dont remove this import, it is required for user input(Create)
 class SemanticAnalyzer:
-    def __init__(self, tokens, lexemes, lines):
+    def __init__(self, tokens, lexemes, lines, user_input_storage, semantic_output_text=None):
         print("Input tokens before filtering:", tokens)
         print("Input lexemes before filtering:", lexemes)
         # Filter tokens and lexemes together, keeping only pairs where token isn't "Space" or empty
@@ -20,6 +21,10 @@ class SemanticAnalyzer:
         self.output = []
         self.symbol_table = {}
         self.display_output = []
+        self.user_inputs = user_input_storage or []  # Store user inputs
+        self.input_index = 0  # Track which input to use
+        self.semantic_output_text = semantic_output_text  # Reference to GUI text box
+        self.input_needed = False  # Flag to indicate input is needed
 
     def analyze(self):
         print("Analyze: tokens =", self.tokens)
@@ -30,9 +35,12 @@ class SemanticAnalyzer:
             self.program()
             if self.display_output:
                 self.output.extend(self.display_output)
+            if self.input_needed:
+                self.output.append("Analysis paused: Please submit input and re-run Semantic Analyzer.")
         except Exception as e:
             self.output.append(f"Semantic Error: {str(e)}")
         return "\n".join(self.output)
+
 
     def program(self):
         print("Starting program(), current_index:", self.current_index)
@@ -125,15 +133,37 @@ class SemanticAnalyzer:
         self.match_and_advance(["Subs"], "subfunction start")
         func_name = self.lexemes[self.current_index]
         self.match_and_advance(["Identifier"], "subfunction name")
-        if func_name in self.symbol_table:
-            raise ValueError(f"Line {self.current_line}: Function '{func_name}' already declared")
+        
+        # Save function info
         self.match_and_advance(["("], "parameter list open")
         params = self.parameter()
         self.match_and_advance([")"], "parameter list close")
         self.match_and_advance(["{"], "subfunction body open")
-        self.body(is_main_function=False)
+        
+        # Save the function body tokens
+        body_start = self.current_index
+        depth = 1
+        body_end = body_start
+        
+        while depth > 0 and body_end < len(self.tokens):
+            if self.tokens[body_end] == "{":
+                depth += 1
+            elif self.tokens[body_end] == "}":
+                depth -= 1
+            body_end += 1
+        
+        # Store function info including body tokens
+        self.symbol_table[func_name] = {
+            "type": "function",
+            "params": params,
+            "body_tokens": self.tokens[body_start:body_end-1],
+            "body_lexemes": self.lexemes[body_start:body_end-1],
+            "is_array": False,
+            "dimensions": []
+        }
+        
+        self.current_index = body_end - 1
         self.match_and_advance(["}"], "subfunction body close")
-        self.symbol_table[func_name] = {"type": "function", "params": params, "is_array": False, "dimensions": []}
 
     def parameter(self):
         params = []
@@ -694,25 +724,53 @@ class SemanticAnalyzer:
         return rows
 
     def body(self, is_main_function=False):
-        print(f"body: Starting at index {self.current_index}, tokens={self.tokens[self.current_index:self.current_index+6]}, lexemes={self.lexemes[self.current_index:self.current_index+6]}")
+        print(f"body: Starting at index {self.current_index}, tokens={self.tokens[self.current_index:self.current_index+6]}")
+        return_value = None
+        
         while self.peek_next_token() and self.peek_next_token() not in ["}", None]:
             token = self.peek_next_token()
             print(f"body: Processing token={token}, lexeme={self.lexemes[self.current_index]}")
+            
             if token in ["Link", "Bubble", "Piece", "Flip"]:
                 self.statements()
+            elif token in ["Ifsnap", "Change", "Do", "Put", "Display", "Create"]:
                 self.slist()
-            elif token in ["Ifsnap", "Change", "Do", "Put", "Display", "Create", "Identifier"]:
-                self.slist()
-            elif token in ["Revoid", "Rebrick"]:
+            elif token == "Identifier":
+                next_token = self.next_next_token()
+                if next_token == "(":
+                    saved_index = self.current_index
+                    func_name = self.lexemes[self.current_index]
+                    self.function_call()
+                    if func_name not in self.symbol_table:
+                        raise ValueError(f"Line {self.current_line}: Undefined function '{func_name}'")
+                else:
+                    self.slist()
+            elif token == "Rebrick":
+                self.match_and_advance(["Rebrick"], "return statement")
+                var_name = self.lexemes[self.current_index]
+                self.match_and_advance(["Identifier"], "return value")
+                if var_name not in self.symbol_table:
+                    raise ValueError(f"Line {self.current_line}: Undefined variable '{var_name}'")
+                return_value = self.symbol_table[var_name]["value"]
+                self.match_and_advance([";"], "return end")
+                break
+            elif token == "Revoid":
                 self.void()
-                return
+                break
             else:
-                print(f"body: Skipping unexpected token '{token}' at index {self.current_index}")
-                self.advance()  # Skip unexpected tokens
-        if is_main_function:
-            self.void()
+                raise ValueError(f"Line {self.current_line}: Unexpected token '{token}' in body")
+        
+        # Handle function vs main function differently
+        if not is_main_function:
+            return return_value
+            
+        # For main function, handle Revoid and closing brace
+        self.void()
+        self.match_and_advance(["}"], "main function body close")
+        
         print(f"body: Ended at index {self.current_index}")
-
+        return return_value
+    
     def statements(self):
         token = self.peek_next_token()
         if token in ["Link", "Bubble", "Piece", "Flip"]:
@@ -743,18 +801,29 @@ class SemanticAnalyzer:
 
     def stateset(self):
         token = self.peek_next_token()
+        print(f"stateset: Starting with token={token}")
+        
         if token in ["Ifsnap", "Change"]:
             self.condi_stat()
-        elif token == "Identifier" and self.peek_two_tokens_ahead() == "(":
-            self.function_call()
         elif token == "Identifier":
-            self.var_assign()
+            next_token = self.next_next_token()
+            if next_token == "(":
+                # Handle function call
+                func_name = self.lexemes[self.current_index]
+                if func_name not in self.symbol_table:
+                    raise ValueError(f"Line {self.current_line}: Undefined function '{func_name}'")
+                self.function_call()
+            else:
+                self.var_assign()
         elif token == "Create":
             self.create()
         elif token == "Display":
             self.display()
         elif token in ["Do", "Put"]:
             self.loop_stat()
+        else:
+            expected = ["Ifsnap", "Change", "Identifier", "Create", "Display", "Do", "Put"]
+            raise ValueError(f"Line {self.current_line}: Expected one of {expected}, found '{token}'")
 
     def create(self):
         print(f"create: Starting at index {self.current_index}, token={self.peek_next_token()}")
@@ -764,30 +833,66 @@ class SemanticAnalyzer:
         print(f"create: var_name={var_name}")
         self.match_and_advance(["Identifier"], "input variable")
         index = None
-        if self.peek_next_token() == "[":  # optional array in Create
+        if self.peek_next_token() == "[":  # Optional array in Create
             self.match_and_advance(["["], "array open")
             print(f"create: Evaluating array index at index {self.current_index}")
-            index = self.evaluate_expression()  # Evaluate i
+            index = self.evaluate_expression()
             print(f"create: Index evaluated to {index}")
             self.match_and_advance(["]"], "array close")
         self.match_and_advance([")"], "input close")
         self.match_and_advance([";"], "input statement end")
         if var_name not in self.symbol_table:
             raise ValueError(f"Line {self.current_line}: Variable '{var_name}' not declared")
-        if index is not None:  # Array input
+        
+        # Prompt for input in semantic_output_text
+        if self.semantic_output_text:
+            self.semantic_output_text.delete("1.0", tk.END)
+            var_type = self.symbol_table[var_name]["type"]
+            type_hint = {"Link": "integer", "Bubble": "float", "Piece": "string", "Flip": "true/false"}.get(var_type, var_type)
+            self.semantic_output_text.insert(tk.END, f"Enter Create Input for '{var_name}' ({type_hint}): ")
+            self.input_needed = True
+            return  # Pause analysis until input is submitted
+        
+        # Fallback if no GUI (should not be used in your setup)
+        if self.input_index >= len(self.user_inputs):
+            self.display_output.append(f"Error: No input provided for Create('{var_name}'). Please submit an input and retry.")
+            return
+        
+        input_value = self.user_inputs[self.input_index]
+        self.input_index += 1
+        
+        # Convert input to the appropriate type
+        var_type = self.symbol_table[var_name]["type"]
+        try:
+            if var_type == "Link":
+                value = int(float(input_value))
+            elif var_type == "Bubble":
+                value = float(input_value)
+            elif var_type == "Piece":
+                value = input_value
+            elif var_type == "Flip":
+                value = input_value.lower() in ["true", "1"]
+            else:
+                raise ValueError(f"Line {self.current_line}: Unsupported type '{var_type}' for Create")
+        except ValueError as e:
+            self.display_output.append(f"Error: Invalid input '{input_value}' for type '{var_type}' in Create('{var_name}').")
+            return
+        
+        # Assign value to variable or array
+        if index is not None:
             if not isinstance(self.symbol_table[var_name]["value"], list):
-                raise ValueError(f"Line {self.current_line}: '{var_name}' is not an array")
+                self.display_output.append(f"Error: '{var_name}' is not an array in Create.")
+                return
             index = int(index)
             if index < 0 or index >= len(self.symbol_table[var_name]["value"]):
-                raise ValueError(f"Line {self.current_line}: Array index out of bounds")
-            # GUI input (replace with Tkinter prompt if needed)
-            value = float(input(f"Enter value for {var_name}[{index}]: "))
+                self.display_output.append(f"Error: Array index {index} out of bounds for '{var_name}'.")
+                return
             self.symbol_table[var_name]["value"][index] = value
             print(f"create: Assigned {var_name}[{index}] = {value}")
-        else:  # Variable input
-            value = float(input(f"Enter value for {var_name}: "))
+        else:
             self.symbol_table[var_name]["value"] = value
             print(f"create: Assigned {var_name} = {value}")
+
 
     def display(self):
         self.match_and_advance(["Display"], "display statement")
@@ -1336,23 +1441,87 @@ class SemanticAnalyzer:
     def function_call(self):
         func_name = self.lexemes[self.current_index]
         self.match_and_advance(["Identifier"], "function name")
-        if func_name not in self.symbol_table or self.symbol_table[func_name]["type"] != "function":
-            raise ValueError(f"Line {self.current_line}: Undefined function '{func_name}'")
+        
+        # Save current state
+        saved_state = {
+            'index': self.current_index,
+            'tokens': self.tokens.copy(),
+            'lexemes': self.lexemes.copy(),
+            'symbol_table': self.symbol_table.copy()
+        }
+        
+        # Get parameters and validate function exists
+        function_info = saved_state['symbol_table'][func_name]
+        
+        # Handle parameters
         self.match_and_advance(["("], "param list open")
-        params = self.param()
+        param_values = self.param()
         self.match_and_advance([")"], "param list close")
         self.match_and_advance([";"], "function call end")
-        expected_params = self.symbol_table[func_name]["params"]
-        if len(params) != len(expected_params):
-            raise ValueError(f"Line {self.current_line}: Parameter count mismatch for '{func_name}'")
+        
+        # Create new scope with parameters
+        function_scope = saved_state['symbol_table'].copy()
+        param_names = function_info["params"]
+        
+        # Initialize parameters with values
+        for param_name, param_value in zip(param_names, param_values):
+            function_scope[param_name] = {
+                "type": "Link",
+                "value": float(param_value),
+                "is_array": False,
+                "dimensions": []
+            }
+        
+        # Set up function execution environment
+        self.tokens = function_info["body_tokens"]
+        self.lexemes = function_info["body_lexemes"]
+        self.current_index = 0
+        self.symbol_table = function_scope
+        
+        # Execute function body
+        try:
+            result = self.body(is_main_function=False)
+            if result is None and "result" in self.symbol_table:
+                result = self.symbol_table["result"]["value"]
+        finally:
+            # Restore original state
+            self.current_index = saved_state['index']
+            self.tokens = saved_state['tokens']
+            self.lexemes = saved_state['lexemes']
+            self.symbol_table = saved_state['symbol_table']
+        
+        return result
 
     def param(self):
         params = []
         token = self.peek_next_token()
-        if token in ["Identifier", "Linklit", "Bubblelit", "Piecelit", "Fliplit"]:
-            params.append(self.value())
-            self.paramA(params)
+        
+        # Base case - no parameters
+        if token not in ["Identifier", "Linklit"]:
+            return params
+            
+        # Handle first parameter
+        if token == "Identifier":
+            var_name = self.lexemes[self.current_index]
+            self.match_and_advance(["Identifier"], "parameter")
+            if var_name not in self.symbol_table:
+                raise ValueError(f"Line {self.current_line}: Undefined variable '{var_name}'")
+            value = self.symbol_table[var_name]["value"]
+            if value is None:
+                raise ValueError(f"Line {self.current_line}: Variable '{var_name}' has no value")
+            params.append(value)
+        elif token == "Linklit":
+            value = float(self.lexemes[self.current_index])
+            self.match_and_advance(["Linklit"], "parameter")
+            params.append(value)
+        
+        # Handle additional parameters recursively
+        if self.peek_next_token() == ",":
+            self.match_and_advance([","], "parameter separator")
+            params.extend(self.param())
+        
         return params
+
 
     def paramA(self, params):
         if self.peek_next_token() == ",":
