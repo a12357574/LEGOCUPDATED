@@ -786,10 +786,11 @@ class SemanticAnalyzer:
             self.add_dec()
 
     def slist(self):
-        token = self.peek_next_token()
-        if token in ["Ifsnap", "Change", "Do", "Put", "Display", "Create", "Identifier"]:
+        while self.peek_next_token() in ["Ifsnap", "Change", "Do", "Put", "Display", "Create", "Identifier"]:
             self.stateset()
-            self.slist()
+            # Removed the recursive call to prevent reprocessing
+            #self.stateset()
+            #self.slist()
 
     def add_dec(self):
         self.variable_declaration()
@@ -846,54 +847,56 @@ class SemanticAnalyzer:
         if var_name not in self.symbol_table:
             raise ValueError(f"Line {self.current_line}: Variable '{var_name}' not declared")
         
-        # Prompt for input in semantic_output_text
-        if self.semantic_output_text:
-            self.semantic_output_text.delete("1.0", tk.END)
+        # Check if input is already available in self.user_inputs
+        if self.input_index < len(self.user_inputs):
+            # Use the available input
+            input_value = self.user_inputs[self.input_index]
+            self.input_index += 1  # Move to the next input for future Create statements
+            
+            # Convert input to the appropriate type
             var_type = self.symbol_table[var_name]["type"]
-            type_hint = {"Link": "integer", "Bubble": "float", "Piece": "string", "Flip": "true/false"}.get(var_type, var_type)
-            self.semantic_output_text.insert(tk.END, f"Enter Create Input for '{var_name}' ({type_hint}): ")
-            self.input_needed = True
-            return  # Pause analysis until input is submitted
-        
-        # Fallback if no GUI (should not be used in your setup)
-        if self.input_index >= len(self.user_inputs):
+            try:
+                if var_type == "Link":
+                    value = int(float(input_value))
+                elif var_type == "Bubble":
+                    value = float(input_value)
+                elif var_type == "Piece":
+                    value = input_value
+                elif var_type == "Flip":
+                    value = input_value.lower() in ["true", "1"]
+                else:
+                    raise ValueError(f"Line {self.current_line}: Unsupported type '{var_type}' for Create")
+            except ValueError as e:
+                self.display_output.append(f"Error: Invalid input '{input_value}' for type '{var_type}' in Create('{var_name}').")
+                return
+            
+            # Assign value to variable or array
+            if index is not None:
+                if not isinstance(self.symbol_table[var_name]["value"], list):
+                    self.display_output.append(f"Error: '{var_name}' is not an array in Create.")
+                    return
+                index = int(index)
+                if index < 0 or index >= len(self.symbol_table[var_name]["value"]):
+                    self.display_output.append(f"Error: Array index {index} out of bounds for '{var_name}'.")
+                    return
+                self.symbol_table[var_name]["value"][index] = value
+                print(f"create: Assigned {var_name}[{index}] = {value}")
+            else:
+                self.symbol_table[var_name]["value"] = value
+                print(f"create: Assigned {var_name} = {value}")
+        else:
+            # No input available, prompt the user
+            if self.semantic_output_text:
+                self.semantic_output_text.delete("1.0", tk.END)
+                var_type = self.symbol_table[var_name]["type"]
+                type_hint = {"Link": "integer", "Bubble": "float", "Piece": "string", "Flip": "true/false"}.get(var_type, var_type)
+                self.semantic_output_text.insert(tk.END, f"Enter Create Input for '{var_name}' ({type_hint}): ")
+                self.input_needed = True
+                return  # Pause analysis until input is submitted
+            
+            # Fallback if no GUI (should not be used in your setup)
             self.display_output.append(f"Error: No input provided for Create('{var_name}'). Please submit an input and retry.")
             return
-        
-        input_value = self.user_inputs[self.input_index]
-        self.input_index += 1
-        
-        # Convert input to the appropriate type
-        var_type = self.symbol_table[var_name]["type"]
-        try:
-            if var_type == "Link":
-                value = int(float(input_value))
-            elif var_type == "Bubble":
-                value = float(input_value)
-            elif var_type == "Piece":
-                value = input_value
-            elif var_type == "Flip":
-                value = input_value.lower() in ["true", "1"]
-            else:
-                raise ValueError(f"Line {self.current_line}: Unsupported type '{var_type}' for Create")
-        except ValueError as e:
-            self.display_output.append(f"Error: Invalid input '{input_value}' for type '{var_type}' in Create('{var_name}').")
-            return
-        
-        # Assign value to variable or array
-        if index is not None:
-            if not isinstance(self.symbol_table[var_name]["value"], list):
-                self.display_output.append(f"Error: '{var_name}' is not an array in Create.")
-                return
-            index = int(index)
-            if index < 0 or index >= len(self.symbol_table[var_name]["value"]):
-                self.display_output.append(f"Error: Array index {index} out of bounds for '{var_name}'.")
-                return
-            self.symbol_table[var_name]["value"][index] = value
-            print(f"create: Assigned {var_name}[{index}] = {value}")
-        else:
-            self.symbol_table[var_name]["value"] = value
-            print(f"create: Assigned {var_name} = {value}")
 
 
     def display(self):
@@ -915,7 +918,7 @@ class SemanticAnalyzer:
             if self.peek_next_token() == ",":
                 self.match_and_advance([","], "separator")
         self.display_output.append("".join(output))
-        self.match_and_advance([";"], "display end")  # Already correct
+        self.match_and_advance([";"], "display end")
 
     def out_print(self):
         token = self.peek_next_token()
@@ -1124,16 +1127,23 @@ class SemanticAnalyzer:
         self.match_and_advance(["Identifier"], "variable")
         if var_name not in self.symbol_table:
             raise ValueError(f"Line {self.current_line}: Undefined variable '{var_name}'")
+        
+        # Check if the condition is a modulo operation or a direct comparison
         if self.peek_next_token() == "%":
-           self.match_and_advance(["%"], "modulo")
+            # Modulo comparison: var % mod_val == check_val
+            self.match_and_advance(["%"], "modulo")
+            mod_val = float(self.lexemes[self.current_index])
+            self.match_and_advance(["Linklit"], "mod value")
+            self.match_and_advance(["=="], "equals")
+            check_val = float(self.lexemes[self.current_index])
+            self.match_and_advance(["Linklit"], "check value")
+            return (self.symbol_table[var_name]["value"] % mod_val) == check_val
         else:
-           self.match_and_advance(["=="], "modulo")
-        mod_val = float(self.lexemes[self.current_index])
-        self.match_and_advance(["Linklit"], "mod value")
-        self.match_and_advance(["=="], "equals")
-        check_val = float(self.lexemes[self.current_index])
-        self.match_and_advance(["Linklit"], "check value")
-        return (self.symbol_table[var_name]["value"] % mod_val) == check_val
+            # Direct comparison: var == value
+            self.match_and_advance(["=="], "equals")
+            value = float(self.lexemes[self.current_index])
+            self.match_and_advance(["Linklit"], "value")
+            return self.symbol_table[var_name]["value"] == value
     
     def logical_expression(self):
         print(f"logical_expression: Starting at index {self.current_index}, tokens={self.tokens[self.current_index:self.current_index+3]}")

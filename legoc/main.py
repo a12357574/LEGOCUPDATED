@@ -69,7 +69,7 @@ def run_semantic_analysis():
     lexemes = lexeme_output.get("1.0", tk.END).splitlines()
     input_text = input_entry.get("1.0", tk.END)
     lines = input_text.splitlines()
-    user_input_storage.clear()
+    #user_input_storage.clear()
 
     # Remove empty lines from raw input
     tokens = [t.strip() for t in tokens if t.strip()]
@@ -6065,21 +6065,6 @@ semantic_output_text.pack(fill="both", expand=True)
 #semantic_output_text.bind("<Key>", lambda e: "break") bindings that prevent input
 #semantic_output_text.bind("<Button-1>", lambda e: "break") bindings that prevent input
 
-# Add a button to submit user input
-submit_input_button = tk.Button(semantic_tab, 
-    text="Submit Input",
-    command=lambda: store_user_input(),
-    bg="#004080", fg="white", font=("Arial", 12, "bold"),
-    padx=20, pady=10, relief=tk.RAISED, bd=3)
-submit_input_button.pack(side="bottom", fill="x")
-
-# Add a button to clear inputs
-clear_input_button = tk.Button(semantic_tab, 
-    text="Clear Inputs",
-    command=lambda: clear_user_inputs(),
-    bg="#004080", fg="white", font=("Arial", 12, "bold"),
-    padx=20, pady=10, relief=tk.RAISED, bd=3)
-clear_input_button.pack(side="bottom", fill="x")
 
 # Function to store user input
 user_input_storage = []  # List to store inputs in order
@@ -6092,12 +6077,7 @@ def store_user_input():
     else:
         semantic_output_text.delete("1.0", tk.END)
         semantic_output_text.insert(tk.END, "Please enter a valid input.\n")
-submit_input_button = tk.Button(semantic_tab, 
-    text="Submit Input",
-    command=store_user_input,
-    bg="#004080", fg="white", font=("Arial", 12, "bold"),
-    padx=20, pady=10, relief=tk.RAISED, bd=3)
-submit_input_button.pack(side="bottom", fill="x")
+
 # Function to clear inputs
 def clear_user_inputs():
     user_input_storage.clear()
@@ -6213,6 +6193,29 @@ semantic_button = tk.Button(root,
     relief=tk.RAISED,
     bd=3)
 semantic_button.place(relx=0.34, rely=0.08, relwidth=0.15, relheight=0.05)
+
+# Add a button to submit user input
+submit_input_button = tk.Button(root, 
+    text="Submit Input",
+    command=lambda: store_user_input(),
+    bg="#004080", fg="white", font=("Arial", 12, "bold"),
+    padx=20, pady=10, relief=tk.RAISED, bd=3)
+submit_input_button.place(relx=0.50, rely=0.08, relwidth=0.10, relheight=0.05)
+
+# Add a button to clear inputs
+clear_input_button = tk.Button(root, 
+    text="Clear Inputs",
+    command=lambda: clear_user_inputs(),
+    bg="#004080", fg="white", font=("Arial", 12, "bold"),
+    padx=20, pady=10, relief=tk.RAISED, bd=3)
+clear_input_button.pack(side="bottom", fill="x")
+
+submit_input_button = tk.Button(semantic_tab, 
+    text="Submit Input",
+    command=store_user_input,
+    bg="#004080", fg="white", font=("Arial", 12, "bold"),
+    padx=20, pady=10, relief=tk.RAISED, bd=3)
+submit_input_button.pack(side="bottom", fill="x")
 
 def open_file():
     from tkinter import filedialog
