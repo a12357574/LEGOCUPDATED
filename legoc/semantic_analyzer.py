@@ -164,6 +164,7 @@ class SemanticAnalyzer:
         
         self.current_index = body_end - 1
         self.match_and_advance(["}"], "subfunction body close")
+        print(f"subfunction_declaration: Stored {func_name} with params={params}, body_tokens={self.symbol_table[func_name]['body_tokens']}")
 
     def parameter(self):
         params = []
@@ -900,6 +901,7 @@ class SemanticAnalyzer:
 
 
     def display(self):
+        print(f"display: Starting at index {self.current_index}, token={self.peek_next_token()}")
         self.match_and_advance(["Display"], "display statement")
         output = []
         while self.peek_next_token() not in [";"]:
@@ -912,13 +914,37 @@ class SemanticAnalyzer:
             elif self.peek_next_token() == "Identifier":
                 var_name = self.lexemes[self.current_index]
                 if var_name not in self.symbol_table:
-                    raise ValueError(f"Line {self.current_line}: Undefined variable '{var_name}'")
-                output.append(str(int(self.symbol_table[var_name]["value"])))
-                self.match_and_advance(["Identifier"], "variable")
+                    raise ValueError(f"Line {self.current_line}: Undefined variable or function '{var_name}'")
+                self.match_and_advance(["Identifier"], "variable or function")
+                if self.symbol_table[var_name].get("type") == "function":
+                    print(f"display: Detected function call to '{var_name}'")
+                    saved_index = self.current_index
+                    saved_tokens = self.tokens
+                    saved_lexemes = self.lexemes
+                    saved_display_output = self.display_output
+                    self.display_output = []
+                    self.function_call(var_name=var_name, is_display=True)
+                    # Append function's outputs directly to saved_display_output
+                    saved_display_output.extend(self.display_output)
+                    self.current_index = saved_index
+                    self.tokens = saved_tokens
+                    self.lexemes = saved_lexemes
+                    self.display_output = saved_display_output
+                else:
+                    value = self.symbol_table[var_name]["value"]
+                    if isinstance(value, float):
+                        if value.is_integer():
+                            output.append(str(int(value)))
+                        else:
+                            output.append(f"{value:.2f}")
+                    else:
+                        output.append(str(value))
             if self.peek_next_token() == ",":
                 self.match_and_advance([","], "separator")
-        self.display_output.append("".join(output))
+        if output:  # Append non-empty output for regular Display
+            self.display_output.append("".join(output))
         self.match_and_advance([";"], "display end")
+        print(f"display: Output = {''.join(output) if output else 'None'}")
 
     def out_print(self):
         token = self.peek_next_token()
@@ -1128,8 +1154,12 @@ class SemanticAnalyzer:
         if var_name not in self.symbol_table:
             raise ValueError(f"Line {self.current_line}: Undefined variable '{var_name}'")
         
-        # Check if the condition is a modulo operation or a direct comparison
-        if self.peek_next_token() == "%":
+        var_value = self.symbol_table[var_name]["value"]
+        
+        # Check the next operator
+        next_token = self.peek_next_token()
+        
+        if next_token == "%":
             # Modulo comparison: var % mod_val == check_val
             self.match_and_advance(["%"], "modulo")
             mod_val = float(self.lexemes[self.current_index])
@@ -1137,13 +1167,28 @@ class SemanticAnalyzer:
             self.match_and_advance(["=="], "equals")
             check_val = float(self.lexemes[self.current_index])
             self.match_and_advance(["Linklit"], "check value")
-            return (self.symbol_table[var_name]["value"] % mod_val) == check_val
-        else:
-            # Direct comparison: var == value
-            self.match_and_advance(["=="], "equals")
+            return (var_value % mod_val) == check_val
+        elif next_token in ["==", ">", "<", ">=", "<=", "!="]:
+            # Comparison: var op value
+            op = next_token
+            self.match_and_advance([op], "comparison operator")
             value = float(self.lexemes[self.current_index])
             self.match_and_advance(["Linklit"], "value")
-            return self.symbol_table[var_name]["value"] == value
+            # Evaluate the comparison
+            if op == "==":
+                return var_value == value
+            elif op == ">":
+                return var_value > value
+            elif op == "<":
+                return var_value < value
+            elif op == ">=":
+                return var_value >= value
+            elif op == "<=":
+                return var_value <= value
+            elif op == "!=":
+                return var_value != value
+        else:
+            raise ValueError(f"Line {self.current_line}: Expected comparison operator or '%', found '{next_token}'")
     
     def logical_expression(self):
         print(f"logical_expression: Starting at index {self.current_index}, tokens={self.tokens[self.current_index:self.current_index+3]}")
@@ -1262,7 +1307,10 @@ class SemanticAnalyzer:
             if op == "*":
                 value *= next_value
             elif op == "/":
-                value /= next_value
+                # Convert to float for division to preserve decimal points
+                value = float(value) / float(next_value)
+                # Format to 2 decimal places but keep as float
+                value = float(f"{value:.2f}")
         return value
     
     def factor(self):
@@ -1450,8 +1498,8 @@ class SemanticAnalyzer:
             self.match_and_advance([";"], "loop control end")
             # For simplicity, we don't fully implement break/continue here
 
-    def function_call(self):
-        func_name = self.lexemes[self.current_index]
+    def function_call(self, var_name=None, is_display=False):
+        func_name = var_name if var_name else self.lexemes[self.current_index]
         print(f"function_call: Calling {func_name}")
         
         # Save state
@@ -1459,15 +1507,23 @@ class SemanticAnalyzer:
             'index': self.current_index,
             'tokens': self.tokens,
             'lexemes': self.lexemes,
-            'symbol_table': self.symbol_table
+            'symbol_table': self.symbol_table,
+            'display_output': self.display_output
         }
+
+        # Initialize params
+        params = []
         
-        # Match function call syntax (in main tokens)
-        self.match_and_advance(["Identifier"], "function name")
-        self.match_and_advance(["("], "param list open")
-        params = self.param()
-        self.match_and_advance([")"], "param list close")
-        self.match_and_advance([";"], "function call end")
+        if not is_display:
+            # Match function call syntax (in main tokens)
+            self.match_and_advance(["Identifier"], "function name")
+            self.match_and_advance(["("], "param list open")
+            params = self.param()
+            self.match_and_advance([")"], "param list close")
+            self.match_and_advance([";"], "function call end")
+        else:
+            # For Display, don't expect ( ) ;
+            pass
         
         # Lookup function info
         func_info = saved_state['symbol_table'].get(func_name)
@@ -1477,7 +1533,7 @@ class SemanticAnalyzer:
         # Create a new symbol table for the function scope
         self.symbol_table = saved_state['symbol_table'].copy()
         
-        # Bind parameter values to the function's symbol table
+        # Bind parameter values (cal has no parameters, so this is empty)
         param_names = func_info.get("params", [])
         if len(params) != len(param_names):
             raise ValueError(f"Line {self.current_line}: Incorrect number of arguments for '{func_name}'")
@@ -1492,18 +1548,20 @@ class SemanticAnalyzer:
         self.lexemes = func_info["body_lexemes"]
         self.current_index = 0
         
-        self.body(is_main_function=False)
+        return_value = self.body(is_main_function=False)
         
-        # Restore
+        # Restore state
         self.tokens = saved_state['tokens']
         self.lexemes = saved_state['lexemes']
         self.symbol_table = saved_state['symbol_table']
+        if not is_display:
+            self.display_output = saved_state['display_output']
         
-        # Advance past the function call tokens
-        self.current_index = saved_state['index'] + 5
-
-
-
+        # Advance past the function call tokens if not in Display
+        if not is_display:
+            self.current_index = saved_state['index'] + 5
+        
+        return return_value
 
     def param(self):
         params = []
