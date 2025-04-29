@@ -702,7 +702,7 @@ def process_input(event=None, analyze=False):
                 if char == " " or char == "\n":
                     state = 0
                     word = ""
-                    target_word = "Ifsnap"
+                    target_word = "Do"
                     lexeme_output.insert(tk.END, f"{target_word}\n")
                     token_output.insert(tk.END, f"{target_word}\n")
                 elif char == "(":

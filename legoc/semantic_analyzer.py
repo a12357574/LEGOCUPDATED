@@ -825,8 +825,10 @@ class SemanticAnalyzer:
             self.display()
         elif token in ["Do", "Put"]:
             self.loop_stat()
+        elif token in ["Rebrick","Revoid"]:
+            self.void()
         else:
-            expected = ["Ifsnap", "Change", "Identifier", "Create", "Display", "Do", "Put"]
+            expected = ["Ifsnap", "Change", "Identifier", "Create", "Display", "Do", "Put", "Rebrick"]
             raise ValueError(f"Line {self.current_line}: Expected one of {expected}, found '{token}'")
 
     def create(self):
@@ -1360,20 +1362,31 @@ class SemanticAnalyzer:
             self.for_loop()
 
     def do_while_loop(self):
+        print(f"do_while_loop: Starting at index {self.current_index}")
         self.match_and_advance(["Do"], "do-while loop")
         self.match_and_advance(["{"], "do-while body open")
+        body_start = self.current_index
         self.body(is_main_function=False)
+        body_end = self.current_index
         self.match_and_advance(["}"], "do-while body close")
         self.match_and_advance(["While"], "do-while condition start")
         self.match_and_advance(["("], "condition open")
+        condition_start = self.current_index
         condition_result = self.condition()
+        condition_end = self.current_index
         self.match_and_advance([")"], "condition close")
-        self.match_and_advance(["{"], "do-while second body open")
-        if condition_result:
+        self.match_and_advance([";"], "do-while end")
+        loop_end = self.current_index  # Index after ;
+        while condition_result:
+            self.current_index = body_start
             self.body(is_main_function=False)
-        else:
-            self.skip_body()
-        self.match_and_advance(["}"], "do-while second body close")
+            self.current_index = condition_start
+            condition_result = self.condition()
+            # Current index is now at ), match it
+            self.match_and_advance([")"], "condition close")
+            self.match_and_advance([";"], "do-while end")
+        self.current_index = loop_end
+        print(f"do_while_loop: Ended at index {self.current_index}")
 
     def for_loop(self):
         print(f"for_loop: Starting at index {self.current_index}")

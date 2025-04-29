@@ -895,9 +895,7 @@ class SyntaxAnalyzer:
         self.match_and_advance(["("], "condition open")
         self.condition()
         self.match_and_advance([")"], "condition close")
-        self.match_and_advance(["{"], "do-while second body open")
-        self.body(is_main_function=False)
-        self.match_and_advance(["}"], "do-while second body close")
+        self.match_and_advance([";"], "do-while end")
 
     # CFG Rule 172: <loop_stat> → Put ( <init_state> ; <condition> ; <update_express> ) { <body> <loop_con> }
     def for_loop(self):
