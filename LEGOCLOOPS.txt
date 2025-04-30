@@ -55,5 +55,42 @@ Put (Link i = 1; i < 11; i++) {
 }
 Destroy
 
-https://drive.google.com/file/d/1MCxEAU56gX-ndpTZd8WITRN5ymT9Sz26/view?usp=drive_link
-gg
+Build
+Link Pane()
+{
+    Link count = 0;
+    Link prev = 0;
+    Link curr = 1;
+    Link temp = 0;
+    Display "Fibonacci: ";
+    Display prev;
+    Do {
+        Display curr;
+        temp = curr;
+        curr = prev + curr;
+        prev = temp;
+        count = count + 1;
+    } While (count < 4);
+    Rebrick 0;
+}
+Destroy
+
+
+Build
+Link Pane()
+{
+    Link prev = 0;
+    Link curr = 1;
+    Link temp = 0;
+    Display "Fibonacci: ";
+    Display prev;
+    Put (Link i = 0; i < 4; i++) {
+        Display curr;
+        temp = curr;
+        curr = prev + curr;
+        prev = temp;
+    }
+    Rebrick 0;
+}
+Destroy
+
