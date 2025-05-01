@@ -1361,7 +1361,7 @@ class SemanticAnalyzer:
     
     def term(self):
         value = self.factor()
-        while self.peek_next_token() in ["*", "/"]:
+        while self.peek_next_token() in ["*", "/", "%"]:
             op = self.peek_next_token()
             self.match_and_advance([op], "arithmetic operator")
             next_value = self.factor()
@@ -1369,9 +1369,14 @@ class SemanticAnalyzer:
                 value *= next_value
             elif op == "/":
                 # Convert to float for division to preserve decimal points
-                value = float(value) / float(next_value)
+                if self.tokens[self.current_index - 1] == "Linklit":
+                    value = float(int(value) // int(next_value))
+                else:
+                    value = float(value) / float(next_value)
                 # Format to 2 decimal places but keep as float
-                value = float(f"{value:.2f}")
+                    value = float(f"{value:.2f}")
+            elif op == "%":
+                value = float(value) % float(next_value)
         return value
     
     def factor(self):
