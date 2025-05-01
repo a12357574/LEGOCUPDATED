@@ -1,4 +1,5 @@
-import tkinter as tk #dont remove this import, it is required for user input(Create)
+import tkinter as tk
+from tkinter import messagebox #dont remove this import, it is required for user input(Create)
 class SemanticAnalyzer:
     def __init__(self, tokens, lexemes, lines, user_input_storage, semantic_output_text=None):
         print("Input tokens before filtering:", tokens)
@@ -791,8 +792,11 @@ class SemanticAnalyzer:
             self.add_dec()
 
     def slist(self):
+        print(f"slist: Starting at index {self.current_index}, token={self.peek_next_token()}, lexeme={self.lexemes[self.current_index] if self.current_index < len(self.lexemes) else 'None'}")
         while self.peek_next_token() in ["Ifsnap", "Change", "Do", "Put", "Display", "Create", "Identifier"]:
             self.stateset()
+            print(f"slist: Continuing at index {self.current_index}, token={self.peek_next_token()}, lexeme={self.lexemes[self.current_index] if self.current_index < len(self.lexemes) else 'None'}")
+        print(f"slist: Ended at index {self.current_index}")
             # Removed the recursive call to prevent reprocessing
             #self.stateset()
             #self.slist()
@@ -809,7 +813,7 @@ class SemanticAnalyzer:
 
     def stateset(self):
         token = self.peek_next_token()
-        print(f"stateset: Starting with token={token}")
+        print(f"stateset: Starting with token={token}, index={self.current_index}, lexeme={self.lexemes[self.current_index] if self.current_index < len(self.lexemes) else 'None'}")
         
         if token in ["Ifsnap", "Change"]:
             self.condi_stat()
@@ -834,6 +838,7 @@ class SemanticAnalyzer:
         else:
             expected = ["Ifsnap", "Change", "Identifier", "Create", "Display", "Do", "Put", "Rebrick"]
             raise ValueError(f"Line {self.current_line}: Expected one of {expected}, found '{token}'")
+        print(f"stateset: Ended with index={self.current_index}, next_token={self.peek_next_token()}")
         
     def scan_create_statements(self):
         """Scan tokens to count Create statements and collect variable names."""
@@ -852,45 +857,41 @@ class SemanticAnalyzer:
         print(f"scan_create_statements: Found {self.create_count} Create statements, vars={self.create_vars}")
 
     def prompt_input(self, prompt_text):
-        """Display a Tkinter pop-up to collect user input."""
+        print(f"prompt_input: Showing prompt: {prompt_text}")
         input_value = []
         root = tk.Tk()
-        root.withdraw()  # Hide the main window
+        root.withdraw()
         popup = tk.Toplevel(root)
         popup.title("Input Prompt")
         popup.geometry("300x150")
         popup.resizable(False, False)
-
-        # Style the prompt like a terminal
         tk.Label(popup, text=prompt_text, font=("Courier", 12), wraplength=280).pack(pady=10)
         entry = tk.Entry(popup, font=("Courier", 12), width=20)
         entry.pack(pady=10)
-
         def submit():
             value = entry.get().strip()
+            print(f"prompt_input: Submitted value='{value}'")
             if value:
                 input_value.append(value)
                 popup.destroy()
             else:
                 messagebox.showerror("Error", "Input cannot be empty")
-                input_value.append("")  # Prevent blocking
-
+                input_value.append("")
         tk.Button(popup, text="Submit", command=submit, bg="#00cc00", fg="white", font=("Courier", 12)).pack(pady=10)
         entry.bind("<Return>", lambda event: submit())
-
-        # Center the popup
         popup.update_idletasks()
         x = (root.winfo_screenwidth() - popup.winfo_width()) // 2
         y = (root.winfo_screenheight() - popup.winfo_height()) // 2
         popup.geometry(f"+{x}+{y}")
-
         popup.grab_set()
         root.wait_window(popup)
         root.destroy()
-        return input_value[0] if input_value else ""
+        result = input_value[0] if input_value else ""
+        print(f"prompt_input: Returning value='{result}'")
+        return result
 
     def create(self):
-        print(f"create: Starting at index {self.current_index}, token={self.peek_next_token()}")
+        print(f"create: Starting at index={self.current_index}, token={self.peek_next_token()}")
         self.match_and_advance(["Create"], "input statement")
         self.match_and_advance(["("], "input open")
         var_name = self.lexemes[self.current_index]
@@ -899,24 +900,21 @@ class SemanticAnalyzer:
         index = None
         if self.peek_next_token() == "[":
             self.match_and_advance(["["], "array open")
-            print(f"create: Evaluating array index at index {self.current_index}")
+            print(f"create: Evaluating array index at index={self.current_index}")
             index = self.evaluate_expression()
-            print(f"create: Index evaluated to {index}")
+            print(f"create: Index evaluated to={index}")
             self.match_and_advance(["]"], "array close")
         self.match_and_advance([")"], "input close")
         self.match_and_advance([";"], "input statement end")
         if var_name not in self.symbol_table:
             raise ValueError(f"Line {self.current_line}: Variable '{var_name}' not declared")
-
-        # Determine if multiple inputs are expected
         is_multi_input = self.create_count >= 2 and self.input_index == 0
         var_type = self.symbol_table[var_name]["type"]
         type_hint = {"Link": "integer", "Bubble": "float", "Piece": "string", "Flip": "true/false"}.get(var_type, var_type)
         input_prompt = f"Enter input for '{var_name}' ({type_hint}):" if not is_multi_input else f"Enter inputs for {', '.join(self.create_vars)} (comma-separated, {type_hint}):"
-
-        # Check if input is available
         if self.input_index < len(self.user_inputs):
             input_value = self.user_inputs[self.input_index]
+            print(f"create: Using stored input_value='{input_value}' for {var_name}")
             if is_multi_input:
                 input_values = [v.strip() for v in input_value.split(",")]
                 if len(input_values) != self.create_count:
@@ -927,18 +925,17 @@ class SemanticAnalyzer:
             else:
                 self.input_index += 1
         else:
-            # Show pop-up prompt
             input_value = self.prompt_input(input_prompt)
+            print(f"create: Received input_value='{input_value}' from prompt for {var_name}")
             if not input_value:
                 self.display_output.append(f"Error: No input provided for Create('{var_name}').")
                 self.input_needed = True
                 return
             self.user_inputs.append(input_value)
-
-        # Convert input to appropriate type
         try:
             if var_type == "Link":
-                value = int(float(input_value))
+                # Direct int conversion to handle negative integers
+                value = int(input_value)
             elif var_type == "Bubble":
                 value = float(input_value)
             elif var_type == "Piece":
@@ -947,11 +944,12 @@ class SemanticAnalyzer:
                 value = input_value.lower() in ["true", "1"]
             else:
                 raise ValueError(f"Line {self.current_line}: Unsupported type '{var_type}' for Create")
+            print(f"create: Converted input_value='{input_value}' to value={value} for type={var_type}")
         except ValueError as e:
-            self.display_output.append(f"Error: Invalid input '{input_value}' for type '{var_type}' in Create('{var_name}').")
+            error_msg = f"Error: Invalid input '{input_value}' for type '{var_type}' in Create('{var_name}')."
+            print(f"create: {error_msg} (Exception: {str(e)})")
+            self.display_output.append(error_msg)
             return
-
-        # Assign value to variable or array
         if index is not None:
             if not isinstance(self.symbol_table[var_name]["value"], list):
                 self.display_output.append(f"Error: '{var_name}' is not an array in Create.")
@@ -961,10 +959,10 @@ class SemanticAnalyzer:
                 self.display_output.append(f"Error: Array index {index} out of bounds for '{var_name}'.")
                 return
             self.symbol_table[var_name]["value"][index] = value
-            print(f"create: Assigned {var_name}[{index}] = {value}")
+            print(f"create: Assigned {var_name}[{index}]={value}")
         else:
             self.symbol_table[var_name]["value"] = value
-            print(f"create: Assigned {var_name} = {value}")
+            print(f"create: Assigned {var_name}={value}")
 
     def display(self):
         print(f"display: Starting at index {self.current_index}, token={self.peek_next_token()}")
@@ -1107,30 +1105,34 @@ class SemanticAnalyzer:
 
     def condi_stat(self):
         token = self.peek_next_token()
+        print(f"condi_stat: Starting with token={token}, index={self.current_index}, lexeme={self.lexemes[self.current_index] if self.current_index < len(self.lexemes) else 'None'}")
         if token == "Ifsnap":
             self.if_statement()
         elif token == "Change":
             self.switch_statement()
+        print(f"condi_stat: Ended at index={self.current_index}, next_token={self.peek_next_token()}")
 
     def if_statement(self):
+        print(f"if_statement: Starting at index={self.current_index}, token={self.peek_next_token()}, lexeme={self.lexemes[self.current_index] if self.current_index < len(self.lexemes) else 'None'}")
         self.match_and_advance(["Ifsnap"], "if statement")
         self.match_and_advance(["("], "condition open")
         condition_result = self.condition()
         self.match_and_advance([")"], "condition close")
         self.match_and_advance(["{"], "if body open")
         if condition_result:
-            self.display()
+            self.body(is_main_function=False)
         else:
             self.skip_body()  # Skip the if body if condition is false
         self.match_and_advance(["}"], "if body close")
-        if self.peek_next_token() == "Snap":
+        while self.peek_next_token() == "Snap":
             self.match_and_advance(["Snap"], "else statement")
             self.match_and_advance(["{"], "else body open")
             if not condition_result:
-                self.display()
+                self.body(is_main_function=False)
             else:
                 self.skip_body()  # Skip the else body if condition is true
             self.match_and_advance(["}"], "else body close")
+        print(f"if_statement: Ended at index={self.current_index}, next_token={self.peek_next_token()}")
     
     def skip_body(self):
         # Skip tokens until we reach the closing brace of the current block
@@ -1215,46 +1217,13 @@ class SemanticAnalyzer:
             self.body(is_main_function=False)
 
     def condition(self):
-        var_name = self.lexemes[self.current_index]
-        self.match_and_advance(["Identifier"], "variable")
-        if var_name not in self.symbol_table:
-            raise ValueError(f"Line {self.current_line}: Undefined variable '{var_name}'")
-        
-        var_value = self.symbol_table[var_name]["value"]
-        
-        # Check the next operator
-        next_token = self.peek_next_token()
-        
-        if next_token == "%":
-            # Modulo comparison: var % mod_val == check_val
-            self.match_and_advance(["%"], "modulo")
-            mod_val = float(self.lexemes[self.current_index])
-            self.match_and_advance(["Linklit"], "mod value")
-            self.match_and_advance(["=="], "equals")
-            check_val = float(self.lexemes[self.current_index])
-            self.match_and_advance(["Linklit"], "check value")
-            return (var_value % mod_val) == check_val
-        elif next_token in ["==", ">", "<", ">=", "<=", "!="]:
-            # Comparison: var op value
-            op = next_token
-            self.match_and_advance([op], "comparison operator")
-            value = float(self.lexemes[self.current_index])
-            self.match_and_advance(["Linklit"], "value")
-            # Evaluate the comparison
-            if op == "==":
-                return var_value == value
-            elif op == ">":
-                return var_value > value
-            elif op == "<":
-                return var_value < value
-            elif op == ">=":
-                return var_value >= value
-            elif op == "<=":
-                return var_value <= value
-            elif op == "!=":
-                return var_value != value
-        else:
-            raise ValueError(f"Line {self.current_line}: Expected comparison operator or '%', found '{next_token}'")
+        print(f"condition: Starting at index={self.current_index}, tokens={self.tokens[self.current_index:self.current_index+5]}")
+        # Parse the first comparison
+        result = self.comparison()
+        # Handle logical operators (||, &&) recursively
+        result = self.condi(result)
+        print(f"condition: Result={result}, index={self.current_index}")
+        return result
     
     def logical_expression(self):
         print(f"logical_expression: Starting at index {self.current_index}, tokens={self.tokens[self.current_index:self.current_index+3]}")
@@ -1280,25 +1249,51 @@ class SemanticAnalyzer:
         return left
 
     def comparison(self):
+        print(f"comparison: Starting at index={self.current_index}, token={self.peek_next_token()}")
+        # Parse the left operand (Identifier or Linklit)
         val1 = self.value()
+        # Get the comparison operator
         op = self.peek_next_token()
-        self.op()
-        val2 = self.value()
+        if op not in ["==", "!=", "<", ">", ">=", "<=", "%"]:
+            raise ValueError(f"Line {self.current_line}: Expected comparison operator or '%', found '{op}'")
+        self.match_and_advance([op], "comparison operator")
+        
+        if op == "%":
+            # Modulo comparison: var % mod_val == check_val
+            mod_val = self.value()  # Use value() to handle Identifier or Linklit
+            self.match_and_advance(["=="], "equals")
+            check_val = float(self.lexemes[self.current_index])
+            self.match_and_advance(["Linklit"], "check value")
+            return (val1 % mod_val) == check_val
+        
+        # Parse the right operand (can be an expression, e.g., num / 2)
+        val2 = self.evaluate_expression()
+        
         result = self.evaluate_condition(val1, op, val2)
         self.last_condition_str = f"{val1} {op} {val2}"
-        self.last_comparison_str = f"{val1} {op} {val2}"  # For compound conditions
-        return int(result)
+        self.last_comparison_str = f"{val1} {op} {val2}"
+        print(f"comparison: Result={result}, condition={self.last_condition_str}")
+        return result
 
     def condi(self, prev_result):
-        if self.peek_next_token() in ["==", "!=", "<", ">", ">=", "<=", "||", "&&", "!!"]:
-            op = self.peek_next_token()
-            self.op()
-            val = self.value()
-            arith = self.arith()
-            if arith:
-                val = self.evaluate_expression(val, arith)
-            prev_result = self.evaluate_condition(prev_result, op, val)
-            self.condi(prev_result)
+        # Handle logical operators (||, &&, !!)
+        next_token = self.peek_next_token()
+        if next_token in ["||", "&&"]:
+            op = next_token
+            self.match_and_advance([op], "logical operator")
+            # Parse the next comparison
+            val = self.comparison()
+            # Evaluate the logical operation
+            if op == "||":
+                prev_result = prev_result or val
+            elif op == "&&":
+                prev_result = prev_result and val
+            # Continue checking for more logical operators
+            prev_result = self.condi(prev_result)
+        elif next_token == "!!":
+            self.match_and_advance(["!!"], "logical not")
+            prev_result = not prev_result
+            prev_result = self.condi(prev_result)
         return prev_result
 
     def op(self):
@@ -1726,6 +1721,8 @@ class SemanticAnalyzer:
         return int(result)
 
     def evaluate_condition(self, left, op, right):
+        if not isinstance(left, (int, float)) or not isinstance(right, (int, float)):
+            raise ValueError(f"Line {self.current_line}: Comparison operands must be numeric")
         if op == "==":
             return left == right
         elif op == "!=":
