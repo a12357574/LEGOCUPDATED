@@ -25,6 +25,10 @@ class SemanticAnalyzer:
         self.input_index = 0  # Track which input to use
         self.semantic_output_text = semantic_output_text  # Reference to GUI text box
         self.input_needed = False  # Flag to indicate input is needed
+        # Initialize Create handling attributes
+        self.create_count = 0
+        self.create_vars = []
+        self.scan_create_statements()
 
     def analyze(self):
         print("Analyze: tokens =", self.tokens)
@@ -830,6 +834,60 @@ class SemanticAnalyzer:
         else:
             expected = ["Ifsnap", "Change", "Identifier", "Create", "Display", "Do", "Put", "Rebrick"]
             raise ValueError(f"Line {self.current_line}: Expected one of {expected}, found '{token}'")
+        
+    def scan_create_statements(self):
+        """Scan tokens to count Create statements and collect variable names."""
+        i = 0
+        while i < len(self.tokens):
+            if self.tokens[i] == "Create":
+                self.create_count += 1
+                # Expect Create ( Identifier ) ;
+                if i + 2 < len(self.tokens) and self.tokens[i + 1] == "(" and self.tokens[i + 2] == "Identifier":
+                    self.create_vars.append(self.lexemes[i + 2])
+                    i += 5  # Skip Create ( Identifier ) ;
+                else:
+                    i += 1
+            else:
+                i += 1
+        print(f"scan_create_statements: Found {self.create_count} Create statements, vars={self.create_vars}")
+
+    def prompt_input(self, prompt_text):
+        """Display a Tkinter pop-up to collect user input."""
+        input_value = []
+        root = tk.Tk()
+        root.withdraw()  # Hide the main window
+        popup = tk.Toplevel(root)
+        popup.title("Input Prompt")
+        popup.geometry("300x150")
+        popup.resizable(False, False)
+
+        # Style the prompt like a terminal
+        tk.Label(popup, text=prompt_text, font=("Courier", 12), wraplength=280).pack(pady=10)
+        entry = tk.Entry(popup, font=("Courier", 12), width=20)
+        entry.pack(pady=10)
+
+        def submit():
+            value = entry.get().strip()
+            if value:
+                input_value.append(value)
+                popup.destroy()
+            else:
+                messagebox.showerror("Error", "Input cannot be empty")
+                input_value.append("")  # Prevent blocking
+
+        tk.Button(popup, text="Submit", command=submit, bg="#00cc00", fg="white", font=("Courier", 12)).pack(pady=10)
+        entry.bind("<Return>", lambda event: submit())
+
+        # Center the popup
+        popup.update_idletasks()
+        x = (root.winfo_screenwidth() - popup.winfo_width()) // 2
+        y = (root.winfo_screenheight() - popup.winfo_height()) // 2
+        popup.geometry(f"+{x}+{y}")
+
+        popup.grab_set()
+        root.wait_window(popup)
+        root.destroy()
+        return input_value[0] if input_value else ""
 
     def create(self):
         print(f"create: Starting at index {self.current_index}, token={self.peek_next_token()}")
@@ -839,7 +897,7 @@ class SemanticAnalyzer:
         print(f"create: var_name={var_name}")
         self.match_and_advance(["Identifier"], "input variable")
         index = None
-        if self.peek_next_token() == "[":  # Optional array in Create
+        if self.peek_next_token() == "[":
             self.match_and_advance(["["], "array open")
             print(f"create: Evaluating array index at index {self.current_index}")
             index = self.evaluate_expression()
@@ -849,58 +907,64 @@ class SemanticAnalyzer:
         self.match_and_advance([";"], "input statement end")
         if var_name not in self.symbol_table:
             raise ValueError(f"Line {self.current_line}: Variable '{var_name}' not declared")
-        
-        # Check if input is already available in self.user_inputs
+
+        # Determine if multiple inputs are expected
+        is_multi_input = self.create_count >= 2 and self.input_index == 0
+        var_type = self.symbol_table[var_name]["type"]
+        type_hint = {"Link": "integer", "Bubble": "float", "Piece": "string", "Flip": "true/false"}.get(var_type, var_type)
+        input_prompt = f"Enter input for '{var_name}' ({type_hint}):" if not is_multi_input else f"Enter inputs for {', '.join(self.create_vars)} (comma-separated, {type_hint}):"
+
+        # Check if input is available
         if self.input_index < len(self.user_inputs):
-            # Use the available input
             input_value = self.user_inputs[self.input_index]
-            self.input_index += 1  # Move to the next input for future Create statements
-            
-            # Convert input to the appropriate type
-            var_type = self.symbol_table[var_name]["type"]
-            try:
-                if var_type == "Link":
-                    value = int(float(input_value))
-                elif var_type == "Bubble":
-                    value = float(input_value)
-                elif var_type == "Piece":
-                    value = input_value
-                elif var_type == "Flip":
-                    value = input_value.lower() in ["true", "1"]
-                else:
-                    raise ValueError(f"Line {self.current_line}: Unsupported type '{var_type}' for Create")
-            except ValueError as e:
-                self.display_output.append(f"Error: Invalid input '{input_value}' for type '{var_type}' in Create('{var_name}').")
-                return
-            
-            # Assign value to variable or array
-            if index is not None:
-                if not isinstance(self.symbol_table[var_name]["value"], list):
-                    self.display_output.append(f"Error: '{var_name}' is not an array in Create.")
+            if is_multi_input:
+                input_values = [v.strip() for v in input_value.split(",")]
+                if len(input_values) != self.create_count:
+                    self.display_output.append(f"Error: Expected {self.create_count} inputs, got {len(input_values)}")
                     return
-                index = int(index)
-                if index < 0 or index >= len(self.symbol_table[var_name]["value"]):
-                    self.display_output.append(f"Error: Array index {index} out of bounds for '{var_name}'.")
-                    return
-                self.symbol_table[var_name]["value"][index] = value
-                print(f"create: Assigned {var_name}[{index}] = {value}")
+                input_value = input_values[self.create_vars.index(var_name)]
+                self.input_index += 1 if self.input_index + 1 == self.create_count else 0
             else:
-                self.symbol_table[var_name]["value"] = value
-                print(f"create: Assigned {var_name} = {value}")
+                self.input_index += 1
         else:
-            # No input available, prompt the user
-            if self.semantic_output_text:
-                self.semantic_output_text.delete("1.0", tk.END)
-                var_type = self.symbol_table[var_name]["type"]
-                type_hint = {"Link": "integer", "Bubble": "float", "Piece": "string", "Flip": "true/false"}.get(var_type, var_type)
-                self.semantic_output_text.insert(tk.END, f"Enter Create Input for '{var_name}' ({type_hint}): ")
+            # Show pop-up prompt
+            input_value = self.prompt_input(input_prompt)
+            if not input_value:
+                self.display_output.append(f"Error: No input provided for Create('{var_name}').")
                 self.input_needed = True
-                return  # Pause analysis until input is submitted
-            
-            # Fallback if no GUI (should not be used in your setup)
-            self.display_output.append(f"Error: No input provided for Create('{var_name}'). Please submit an input and retry.")
+                return
+            self.user_inputs.append(input_value)
+
+        # Convert input to appropriate type
+        try:
+            if var_type == "Link":
+                value = int(float(input_value))
+            elif var_type == "Bubble":
+                value = float(input_value)
+            elif var_type == "Piece":
+                value = input_value
+            elif var_type == "Flip":
+                value = input_value.lower() in ["true", "1"]
+            else:
+                raise ValueError(f"Line {self.current_line}: Unsupported type '{var_type}' for Create")
+        except ValueError as e:
+            self.display_output.append(f"Error: Invalid input '{input_value}' for type '{var_type}' in Create('{var_name}').")
             return
 
+        # Assign value to variable or array
+        if index is not None:
+            if not isinstance(self.symbol_table[var_name]["value"], list):
+                self.display_output.append(f"Error: '{var_name}' is not an array in Create.")
+                return
+            index = int(index)
+            if index < 0 or index >= len(self.symbol_table[var_name]["value"]):
+                self.display_output.append(f"Error: Array index {index} out of bounds for '{var_name}'.")
+                return
+            self.symbol_table[var_name]["value"][index] = value
+            print(f"create: Assigned {var_name}[{index}] = {value}")
+        else:
+            self.symbol_table[var_name]["value"] = value
+            print(f"create: Assigned {var_name} = {value}")
 
     def display(self):
         print(f"display: Starting at index {self.current_index}, token={self.peek_next_token()}")
