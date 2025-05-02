@@ -16,9 +16,9 @@ class SemanticAnalyzer:
         print("Initialized tokens:", self.tokens)
         print("Initialized lexemes:", self.lexemes)
         print("Token count:", len(self.tokens))
-        self.lines = lines
+        self.lines = list(range(1, len(lines) + 1)) if lines and isinstance(lines[0], str) else lines
         self.current_index = 0
-        self.current_line = 1
+        self.current_line = 1 if lines else 1
         self.output = []
         self.symbol_table = {}
         self.display_output = []
@@ -29,6 +29,9 @@ class SemanticAnalyzer:
         # Initialize Create handling attributes
         self.create_count = 0
         self.create_vars = []
+        self.last_condition_str = ""
+        self.last_comparison_str = ""
+        self.semantic_output_text = semantic_output_text
         self.scan_create_statements()
 
     def analyze(self):
@@ -64,8 +67,10 @@ class SemanticAnalyzer:
         self.match_and_advance(["Destroy"], "program end")
 
     def global_declaration(self):
+        print(f"global_declaration: Starting at index {self.current_index}")
         while self.current_index < len(self.tokens):
             next_token = self.peek_next_token()
+            print(f"global_declaration: next_token={next_token}, index={self.current_index}")
             if next_token in [None, "Destroy", "Subs"] or (next_token == "Link" and self.next_next_token() == "Pane"):
                 return  # λ production or main function
             elif next_token in ["Link", "Bubble", "Piece", "Flip", "Const", "Set"]:
@@ -75,30 +80,47 @@ class SemanticAnalyzer:
 
     def declarations(self):
         token = self.peek_next_token()
+        print(f"declarations: token={token}, index={self.current_index}, next_tokens={self.tokens[self.current_index:self.current_index+3]}")
         if token in ["Link", "Bubble", "Piece", "Flip"]:
-            if self.peek_two_tokens_ahead() == "[":
+            # Check for array declaration
+            next_token = self.tokens[self.current_index + 1] if self.current_index + 1 < len(self.tokens) else None
+            two_ahead = self.peek_two_tokens_ahead()
+            print(f"declarations: token={token}, next_token={next_token}, two_ahead={two_ahead}")
+            if two_ahead == "[" or (next_token == "Identifier" and self.tokens[self.current_index + 2] == "[" if self.current_index + 2 < len(self.tokens) else False):
+                print(f"declarations: Detected array declaration at index {self.current_index}")
                 self.array_declaration()
             else:
+                print(f"declarations: Detected variable declaration at index {self.current_index}")
                 self.variable_declaration()
         elif token == "Const":
+            print(f"declarations: Processing const declaration at index {self.current_index}")
             self.const_declaration()
         elif token == "Set":
+            print(f"declarations: Processing struct declaration at index {self.current_index}")
             self.struct_declaration()
         else:
             raise ValueError(f"Line {self.current_line}: Invalid declaration start '{token}'")
+        print(f"declarations: Completed, new index={self.current_index}, next_token={self.peek_next_token()}")
 
     def variable_declaration(self):
         print(f"variable_declaration: Starting at index {self.current_index}, token={self.peek_next_token()}")
         type_token = self.peek_next_token()
-        self.match_and_advance(["Link", "Bubble"], "data type")
+        self.match_and_advance(["Link", "Bubble", "Piece", "Flip"], "data type")
         var_name = self.lexemes[self.current_index]
         self.match_and_advance(["Identifier"], "variable name")
+        if self.peek_next_token() == "[":
+            raise ValueError(f"Line {self.current_line}: Array declaration '{var_name}' should use array syntax, not variable declaration")
         if self.peek_next_token() == "=":
             self.match_and_advance(["="], "assignment")
             value = self.evaluate_expression()
             self.symbol_table[var_name] = {"type": type_token, "value": value}
         else:
-            self.symbol_table[var_name] = {"type": type_token, "value": 0.0}
+            if type_token == "Link" or type_token == "Bubble":
+                self.symbol_table[var_name] = {"type": type_token, "value": 0.0}
+            elif type_token == "Piece":
+                self.symbol_table[var_name] = {"type": type_token, "value": ""}
+            elif type_token == "Flip":
+                self.symbol_table[var_name] = {"type": type_token, "value": False}
         self.match_and_advance([";"], "declaration end")
         print(f"variable_declaration: Added {var_name} = {self.symbol_table[var_name]} to symbol_table")
 
@@ -525,7 +547,7 @@ class SemanticAnalyzer:
         array_name = self.lexemes[self.current_index]
         self.match_and_advance(["Identifier"], "array name")
         self.match_and_advance(["["], "array size open")
-        size1 = int(self.lexemes[self.current_index])
+        size1 = int(float(self.lexemes[self.current_index]))  # Handle Linklit as float
         self.match_and_advance(["Linklit"], "array size")
         self.match_and_advance(["]"], "array size close")
         dims = [size1]
@@ -543,6 +565,12 @@ class SemanticAnalyzer:
                 values = self.Piece_arrayA(dims)
             elif data_type == "Flip":
                 values = self.Flip_arrayA(dims)
+        else:
+            # Initialize uninitialized arrays
+            if data_type == "Piece":
+                values = [""] * size1
+            else:
+                values = [None] * size1
         self.match_and_advance([";"], "array declaration end")
         self.symbol_table[array_name] = {
             "type": data_type,
@@ -550,6 +578,7 @@ class SemanticAnalyzer:
             "is_array": True,
             "dimensions": dims
         }
+        print(f"array_declaration: Added {array_name} = {self.symbol_table[array_name]} to symbol_table")
 
     def two_d(self):
         dims = []
@@ -646,6 +675,8 @@ class SemanticAnalyzer:
         return rows
 
     def Piece_arrayA(self, dims):
+        if self.peek_next_token() != "{":
+            return [""] * dims[0]  # Default for uninitialized array
         self.match_and_advance(["{"], "array values open")
         values = self.Piece_arrayB()
         self.match_and_advance(["}"], "array values close")
@@ -653,6 +684,8 @@ class SemanticAnalyzer:
         if len(dims) == 1:
             if additional:
                 raise ValueError(f"Line {self.current_line}: Extra initialization for 1D array")
+            if len(values) != dims[0]:
+                raise ValueError(f"Line {self.current_line}: Array size mismatch, expected {dims[0]}, got {len(values)}")
             return values
         elif len(dims) == 2:
             matrix = [values]
@@ -730,15 +763,16 @@ class SemanticAnalyzer:
         return rows
 
     def body(self, is_main_function=False):
-        print(f"body: Starting at index {self.current_index}, tokens={self.tokens[self.current_index:self.current_index+6]}")
+        print(f"body: Starting at index {self.current_index}, tokens={self.tokens[self.current_index:self.current_index+6]}, full_tokens={self.tokens[self.current_index:]}")
         return_value = None
 
         while self.peek_next_token() and self.peek_next_token() not in ["}", None]:
             token = self.peek_next_token()
-            print(f"body: Processing token={token}, lexeme={self.lexemes[self.current_index]}")
-
-            if token in ["Link", "Bubble", "Piece", "Flip"]:
-                self.statements()
+            print(f"body: Processing token={token}, lexeme={self.lexemes[self.current_index]}, index={self.current_index}, next_tokens={self.tokens[self.current_index:self.current_index+6]}")
+            
+            if token in ["Link", "Bubble", "Piece", "Flip", "Const", "Set"]:
+                print(f"body: Calling declarations at index {self.current_index} for token={token}")
+                self.declarations()
             elif token in ["Ifsnap", "Change", "Do", "Put", "Display", "Create"]:
                 self.slist()
             elif token == "Identifier":
@@ -780,17 +814,15 @@ class SemanticAnalyzer:
 
     
     def statements(self):
-        token = self.peek_next_token()
-        if token in ["Link", "Bubble", "Piece", "Flip"]:
-            self.states()
-            self.slist()
+        print(f"statements: Starting at index {self.current_index}, token={self.peek_next_token()}")
+        self.declarations()  # Route to declarations instead
+        print(f"statements: Ended at index {self.current_index}")
 
     def states(self):
-        if self.peek_two_tokens_ahead() == "[":
-            self.add_array()
-        else:
-            self.add_dec()
-
+        print(f"states: Starting at index {self.current_index}, token={self.peek_next_token()}")
+        self.declarations()  # Route to declarations instead
+        print(f"states: Ended at index {self.current_index}")
+        
     def slist(self):
         print(f"slist: Starting at index {self.current_index}, token={self.peek_next_token()}, lexeme={self.lexemes[self.current_index] if self.current_index < len(self.lexemes) else 'None'}")
         while self.peek_next_token() in ["Ifsnap", "Change", "Do", "Put", "Display", "Create", "Identifier"]:
@@ -934,7 +966,6 @@ class SemanticAnalyzer:
             self.user_inputs.append(input_value)
         try:
             if var_type == "Link":
-                # Direct int conversion to handle negative integers
                 value = int(input_value)
             elif var_type == "Bubble":
                 value = float(input_value)
@@ -951,11 +982,11 @@ class SemanticAnalyzer:
             self.display_output.append(error_msg)
             return
         if index is not None:
-            if not isinstance(self.symbol_table[var_name]["value"], list):
+            if not self.symbol_table[var_name].get("is_array"):
                 self.display_output.append(f"Error: '{var_name}' is not an array in Create.")
                 return
             index = int(index)
-            if index < 0 or index >= len(self.symbol_table[var_name]["value"]):
+            if index < 0 or index >= self.symbol_table[var_name]["dimensions"][0]:
                 self.display_output.append(f"Error: Array index {index} out of bounds for '{var_name}'.")
                 return
             self.symbol_table[var_name]["value"][index] = value
@@ -988,7 +1019,6 @@ class SemanticAnalyzer:
                     saved_display_output = self.display_output
                     self.display_output = []
                     self.function_call(var_name=var_name, is_display=True)
-                    # Append function's outputs directly to saved_display_output
                     saved_display_output.extend(self.display_output)
                     self.current_index = saved_index
                     self.tokens = saved_tokens
@@ -1003,10 +1033,19 @@ class SemanticAnalyzer:
                             output.append(f"{value:.2f}")
                     else:
                         output.append(str(value))
+            else:
+                value = self.evaluate_expression()
+                if isinstance(value, float):
+                    if value.is_integer():
+                        output.append(str(int(value)))
+                    else:
+                        output.append(f"{value:.2f}")
+                else:
+                    output.append(str(value))
             if self.peek_next_token() == ",":
                 self.match_and_advance([","], "separator")
-        if output:  # Append non-empty output for regular Display
-            self.display_output.append("".join(output))
+        if output:
+            self.display_output.append(" ".join(output))
         self.match_and_advance([";"], "display end")
         print(f"display: Output = {''.join(output) if output else 'None'}")
 
@@ -1117,7 +1156,12 @@ class SemanticAnalyzer:
         self.match_and_advance(["Ifsnap"], "if statement")
         self.match_and_advance(["("], "condition open")
         condition_result = self.condition()
+        print(f"if_statement: Condition result={condition_result}, index={self.current_index}, next_token={self.peek_next_token()}")
         self.match_and_advance([")"], "condition close")
+        # Handle unexpected extra parenthesis
+        if self.peek_next_token() == ")":
+            print(f"if_statement: Skipping unexpected extra ')', index={self.current_index}, lexeme={self.lexemes[self.current_index]}")
+            self.match_and_advance([")"], "unexpected extra parenthesis")
         self.match_and_advance(["{"], "if body open")
         if condition_result:
             self.body(is_main_function=False)
@@ -1249,9 +1293,49 @@ class SemanticAnalyzer:
         return left
 
     def comparison(self):
-        print(f"comparison: Starting at index={self.current_index}, token={self.peek_next_token()}")
-        # Parse the left operand (Identifier or Linklit)
-        val1 = self.value()
+        print(f"comparison: Starting at index={self.current_index}, token={self.peek_next_token()}, lexeme={self.lexemes[self.current_index] if self.current_index < len(self.lexemes) else 'None'}, next_tokens={self.tokens[self.current_index:self.current_index+6]}")
+        # Parse the left operand (Identifier, Linklit, or array access)
+        val1 = None
+        var_name = None
+        
+        if self.peek_next_token() == "Identifier":
+            var_name = self.lexemes[self.current_index]
+            val1 = self.value()  # Get variable value (e.g., "XYZ" for name)
+            
+            # Check for array indexing
+            if self.peek_next_token() == "[":
+                self.match_and_advance(["["], "array index open")
+                index = None
+                if self.peek_next_token() == "Identifier":
+                    index_name = self.lexemes[self.current_index]
+                    self.match_and_advance(["Identifier"], "index variable")
+                    if index_name not in self.symbol_table:
+                        raise ValueError(f"Line {self.current_line}: Undefined index variable '{index_name}'")
+                    index = self.symbol_table[index_name]["value"]
+                elif self.peek_next_token() == "Linklit":
+                    index = float(self.lexemes[self.current_index])
+                    self.match_and_advance(["Linklit"], "index literal")
+                else:
+                    raise ValueError(f"Line {self.current_line}: Expected Identifier or Linklit for array index, found '{self.peek_next_token()}'")
+                self.match_and_advance(["]"], "array index close")
+                
+                # Validate array access
+                if var_name not in self.symbol_table:
+                    raise ValueError(f"Line {self.current_line}: Undefined variable '{var_name}'")
+                if self.symbol_table[var_name].get("is_array", False):
+                    if index >= self.symbol_table[var_name]["dimensions"][0]:
+                        raise ValueError(f"Line {self.current_line}: Index {index} out of bounds for array '{var_name}'")
+                    val1 = self.symbol_table[var_name]["value"][int(index)]
+                else:
+                    # Treat non-array Piece as indexable string
+                    if self.symbol_table[var_name]["type"] != "Piece":
+                        raise ValueError(f"Line {self.current_line}: Indexing not supported for non-Piece variable '{var_name}'")
+                    if index >= len(val1):
+                        raise ValueError(f"Line {self.current_line}: Index {index} out of bounds for string '{var_name}'")
+                    val1 = val1[int(index)]  # Get character from string
+        else:
+            val1 = self.value()  # Handle Linklit or other simple values
+        
         # Get the comparison operator
         op = self.peek_next_token()
         if op not in ["==", "!=", "<", ">", ">=", "<=", "%"]:
@@ -1264,15 +1348,15 @@ class SemanticAnalyzer:
             self.match_and_advance(["=="], "equals")
             check_val = float(self.lexemes[self.current_index])
             self.match_and_advance(["Linklit"], "check value")
-            return (val1 % mod_val) == check_val
+            result = (val1 % mod_val) == check_val
+        else:
+            # Parse the right operand (can be an expression, e.g., num / 2)
+            val2 = self.evaluate_expression()
+            result = self.evaluate_condition(val1, op, val2)
         
-        # Parse the right operand (can be an expression, e.g., num / 2)
-        val2 = self.evaluate_expression()
-        
-        result = self.evaluate_condition(val1, op, val2)
-        self.last_condition_str = f"{val1} {op} {val2}"
-        self.last_comparison_str = f"{val1} {op} {val2}"
-        print(f"comparison: Result={result}, condition={self.last_condition_str}")
+        self.last_condition_str = f"{val1} {op} {val2 if op != '%' else f'% {mod_val} == {check_val}'}"
+        self.last_comparison_str = self.last_condition_str
+        print(f"comparison: Result={result}, condition={self.last_condition_str}, index={self.current_index}")
         return result
 
     def condi(self, prev_result):
@@ -1336,6 +1420,11 @@ class SemanticAnalyzer:
         print(f"var_assign: Starting at index {self.current_index}, token={self.peek_next_token()}, lexeme={self.lexemes[self.current_index]}")
         var_name = self.lexemes[self.current_index]
         self.match_and_advance(["Identifier"], "variable")
+        index = None
+        if self.peek_next_token() == "[":
+            self.match_and_advance(["["], "array open")
+            index = self.evaluate_expression()
+            self.match_and_advance(["]"], "array close")
         next_token = self.peek_next_token()
         if next_token != "=":
             raise ValueError(f"Line {self.current_line}: Expected '=', found '{next_token}' in assignment")
@@ -1343,9 +1432,29 @@ class SemanticAnalyzer:
         value = self.evaluate_expression()
         if var_name not in self.symbol_table:
             raise ValueError(f"Line {self.current_line}: Undefined variable '{var_name}'")
-        self.symbol_table[var_name]["value"] = value
-        print(f"var_assign: Assigned {var_name} = {value}")
-        self.match_and_advance([";"], "assignment end")  # Consume semicolon
+        var_type = self.symbol_table[var_name]["type"]
+        if index is not None:
+            index = int(index)
+            if var_type == "Piece" and not self.symbol_table[var_name].get("is_array"):
+                if not isinstance(value, str) or len(value) != 1:
+                    raise ValueError(f"Line {self.current_line}: Piece indexing requires a single character")
+                current_value = self.symbol_table[var_name]["value"]
+                if index < 0 or index >= len(current_value):
+                    raise ValueError(f"Line {self.current_line}: Index out of bounds for '{var_name}'")
+                new_value = current_value[:index] + value + current_value[index+1:]
+                self.symbol_table[var_name]["value"] = new_value
+                print(f"var_assign: Assigned {var_name}[{index}]={value}, new string={new_value}")
+            elif self.symbol_table[var_name].get("is_array"):
+                if index < 0 or index >= self.symbol_table[var_name]["dimensions"][0]:
+                    raise ValueError(f"Line {self.current_line}: Array index out of bounds")
+                self.symbol_table[var_name]["value"][index] = value
+                print(f"var_assign: Assigned {var_name}[{index}]={value}")
+            else:
+                raise ValueError(f"Line {self.current_line}: '{var_name}' is not an array")
+        else:
+            self.symbol_table[var_name]["value"] = value
+            print(f"var_assign: Assigned {var_name}={value}")
+        self.match_and_advance([";"], "assignment end")
 
     def expression(self):
         value = self.term()
@@ -1380,29 +1489,47 @@ class SemanticAnalyzer:
         return value
     
     def factor(self):
-        print(f"factor: Starting at index {self.current_index}, token={self.peek_next_token()}, lexeme={self.lexemes[self.current_index]}")
+        print(f"factor: Starting at index {self.current_index}, token={self.peek_next_token()}, lexeme={self.lexemes[self.current_index] if self.current_index < len(self.lexemes) else 'None'}")
         token = self.peek_next_token()
         if token == "Linklit":
             value = float(self.lexemes[self.current_index])
             self.match_and_advance(["Linklit"], "number")
             return value
+        elif token == "Piecelit":
+            value = self.lexemes[self.current_index]
+            self.match_and_advance(["Piecelit"], "string literal")
+            return value
         elif token == "Identifier":
             var_name = self.lexemes[self.current_index]
             self.match_and_advance(["Identifier"], "variable")
+            if var_name not in self.symbol_table:
+                raise ValueError(f"Line {self.current_line}: Undefined variable '{var_name}'")
+            var_type = self.symbol_table[var_name]["type"]
             if self.peek_next_token() == "[":
                 self.match_and_advance(["["], "array open")
                 index = self.evaluate_expression()
                 self.match_and_advance(["]"], "array close")
-                if var_name not in self.symbol_table or not isinstance(self.symbol_table[var_name]["value"], list):
+                # Validate and convert index
+                if isinstance(index, float):
+                    if not index.is_integer():
+                        raise ValueError(f"Line {self.current_line}: Non-integer index {index} for '{var_name}'")
+                    index = int(index)
+                if not isinstance(index, int):
+                    raise ValueError(f"Line {self.current_line}: Invalid index type {type(index)} for '{var_name}'")
+                if var_type == "Piece" and not self.symbol_table[var_name].get("is_array"):
+                    value = self.symbol_table[var_name]["value"]
+                    if not value:  # Handle empty string
+                        raise ValueError(f"Line {self.current_line}: Cannot index empty string '{var_name}'")
+                    if index < 0 or index >= len(value):
+                        raise ValueError(f"Line {self.current_line}: Index {index} out of bounds for string '{var_name}'")
+                    return value[index]
+                elif self.symbol_table[var_name].get("is_array"):
+                    if index < 0 or index >= self.symbol_table[var_name]["dimensions"][0]:
+                        raise ValueError(f"Line {self.current_line}: Array index {index} out of bounds for '{var_name}'")
+                    return self.symbol_table[var_name]["value"][index]
+                else:
                     raise ValueError(f"Line {self.current_line}: '{var_name}' is not an array")
-                index = int(index)
-                if index < 0 or index >= len(self.symbol_table[var_name]["value"]):
-                    raise ValueError(f"Line {self.current_line}: Array index out of bounds")
-                return self.symbol_table[var_name]["value"][index]
-            if var_name not in self.symbol_table:
-                raise ValueError(f"Line {self.current_line}: Undefined variable '{var_name}'")
             return self.symbol_table[var_name]["value"]
-            return float(value)
         elif token == "(":
             self.match_and_advance(["("], "expression open")
             value = self.evaluate_expression()
@@ -1411,6 +1538,16 @@ class SemanticAnalyzer:
         elif token == "-":
             self.match_and_advance(["-"], "unary minus")
             return -self.factor()
+        elif token == '"':
+            self.match_and_advance(['"'], "string open")
+            if self.peek_next_token() == '"':
+                self.match_and_advance(['"'], "string close")
+                return ""
+            else:
+                value = self.lexemes[self.current_index]
+                self.match_and_advance(["Piecelit"], "string content")
+                self.match_and_advance(['"'], "string close")
+                return value
         raise ValueError(f"Line {self.current_line}: Expected value, found '{token}'")
 
     def ass_com(self):
@@ -1709,10 +1846,15 @@ class SemanticAnalyzer:
             op = self.peek_next_token()
             self.match_and_advance([op], "operator")
             right = self.term()
-            if op == "+":
-                result += right
+            if isinstance(result, str) or isinstance(right, str):
+                if op != "+":
+                    raise ValueError(f"Line {self.current_line}: Operator '{op}' not supported for strings")
+                result = str(result) + str(right)
             else:
-                result -= right
+                if op == "+":
+                    result += right
+                else:
+                    result -= right
         return result
     
     def format_expression(self, expression):
@@ -1726,6 +1868,25 @@ class SemanticAnalyzer:
         return int(result)
 
     def evaluate_condition(self, left, op, right):
+        print(f"evaluate_condition: left={left}, op={op}, right={right}, line={self.current_line}")
+        if op in ["||", "&&", "!!"]:
+            if not isinstance(left, bool) or (op != "!!" and not isinstance(right, bool)):
+                raise ValueError(f"Line {self.current_line}: Logical operands must be boolean")
+            if op == "||":
+                return left or right
+            elif op == "&&":
+                return left and right
+            elif op == "!!":
+                return not left
+        # Allow string comparisons for == and !=
+        if isinstance(left, str) or isinstance(right, str):
+            if op not in ["==", "!="]:
+                raise ValueError(f"Line {self.current_line}: Operator '{op}' not supported for strings")
+            if op == "==":
+                return str(left) == str(right)
+            elif op == "!=":
+                return str(left) != str(right)
+        # Numeric comparisons
         if not isinstance(left, (int, float)) or not isinstance(right, (int, float)):
             raise ValueError(f"Line {self.current_line}: Comparison operands must be numeric")
         if op == "==":
@@ -1740,12 +1901,6 @@ class SemanticAnalyzer:
             return left >= right
         elif op == "<=":
             return left <= right
-        elif op == "||":
-            return left or right
-        elif op == "&&":
-            return left and right
-        elif op == "!!":
-            return not left
         raise ValueError(f"Line {self.current_line}: Unknown operator '{op}'")
 
     def evaluate_assignment(self, current, op, value):
@@ -1791,16 +1946,17 @@ class SemanticAnalyzer:
                 depth -= 1
             self.advance()
 
-    def match_and_advance(self, expected_tokens, context):
-        if isinstance(expected_tokens, str):
-            expected_tokens = [expected_tokens]
-        token = self.get_current_token()
-        if token is None:
-            raise ValueError(f"Line {self.current_line}: Unexpected end of input in {context}")
-        if token in expected_tokens:
-            self.advance()
-        else:
-            raise ValueError(f"Line {self.current_line}: Expected '{', '.join(expected_tokens)}', found '{token}' in {context}")
+    def match_and_advance(self, expected_tokens, token_type):
+        print(f"match_and_advance: index={self.current_index}, expected={expected_tokens}, found={self.peek_next_token()}, lexeme={self.lexemes[self.current_index] if self.current_index < len(self.lexemes) else 'None'}, line={self.current_line}")
+        if self.peek_next_token() not in expected_tokens:
+            raise ValueError(f"Line {self.current_line}: Expected {token_type}, found '{self.peek_next_token()}'")
+        self.current_index += 1
+        if self.current_index - 1 < len(self.lines):
+            try:
+                self.current_line = int(float(self.lines[self.current_index - 1]))
+            except (ValueError, TypeError):
+                pass  # Keep current_line if lines[self.current_index - 1] is invalid
+        print(f"match_and_advance: Advanced to index={self.current_index}, new_line={self.current_line}")
 
     def get_current_token(self):
         if self.current_index < len(self.tokens):
@@ -1824,10 +1980,15 @@ class SemanticAnalyzer:
         return self.tokens[self.current_index] if self.current_index < len(self.tokens) else None
 
     def peek_two_tokens_ahead(self):
-        return self.tokens[self.current_index + 2] if self.current_index + 2 < len(self.tokens) else None
+        look_ahead_index = self.current_index + 2
+        token = self.tokens[look_ahead_index] if look_ahead_index < len(self.tokens) else None
+        print(f"peek_two_tokens_ahead: index={self.current_index}, look_ahead_index={look_ahead_index}, token={token}, lexeme={self.lexemes[look_ahead_index] if look_ahead_index < len(self.lexemes) else 'None'}")
+        return token
 
     def next_next_token(self):
         return self.tokens[self.current_index + 1] if self.current_index + 1 < len(self.tokens) else None
 
     def advance(self):
         self.current_index += 1
+        self.current_line = self.lines[self.current_index] if self.current_index < len(self.lines) else self.current_line
+        print(f"advance: New current_index={self.current_index}, token={self.peek_next_token()}")
