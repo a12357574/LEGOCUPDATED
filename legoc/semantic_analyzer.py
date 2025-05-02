@@ -1159,9 +1159,9 @@ class SemanticAnalyzer:
         print(f"if_statement: Condition result={condition_result}, index={self.current_index}, next_token={self.peek_next_token()}")
         self.match_and_advance([")"], "condition close")
         # Handle unexpected extra parenthesis
-        if self.peek_next_token() == ")":
-            print(f"if_statement: Skipping unexpected extra ')', index={self.current_index}, lexeme={self.lexemes[self.current_index]}")
-            self.match_and_advance([")"], "unexpected extra parenthesis")
+        #if self.peek_next_token() == ")":
+            #print(f"if_statement: Skipping unexpected extra ')', index={self.current_index}, lexeme={self.lexemes[self.current_index]}")
+            #self.match_and_advance([")"], "unexpected extra parenthesis")
         self.match_and_advance(["{"], "if body open")
         if condition_result:
             self.body(is_main_function=False)
@@ -1294,6 +1294,7 @@ class SemanticAnalyzer:
 
     def comparison(self):
         print(f"comparison: Starting at index={self.current_index}, token={self.peek_next_token()}, lexeme={self.lexemes[self.current_index] if self.current_index < len(self.lexemes) else 'None'}, next_tokens={self.tokens[self.current_index:self.current_index+6]}")
+        print(f"Debug: tokens at index {self.current_index} = {self.tokens[self.current_index:self.current_index+6]}")
         # Parse the left operand (Identifier, Linklit, or array access)
         val1 = None
         var_name = None
@@ -1338,6 +1339,7 @@ class SemanticAnalyzer:
         
         # Get the comparison operator
         op = self.peek_next_token()
+        print(f"Debug: op={op}, token={self.tokens[self.current_index]}")
         if op not in ["==", "!=", "<", ">", ">=", "<=", "%"]:
             raise ValueError(f"Line {self.current_line}: Expected comparison operator or '%', found '{op}'")
         self.match_and_advance([op], "comparison operator")
@@ -1842,7 +1844,7 @@ class SemanticAnalyzer:
     def evaluate_expression(self):
         print(f"evaluate_expression: Starting at index {self.current_index}, tokens={self.tokens[self.current_index:self.current_index+5]}")
         result = self.term()
-        while self.peek_next_token() in ["+", "-"]:
+        while self.current_index < len(self.tokens) and self.peek_next_token() in ["+", "-"]:
             op = self.peek_next_token()
             self.match_and_advance([op], "operator")
             right = self.term()
@@ -1947,6 +1949,8 @@ class SemanticAnalyzer:
             self.advance()
 
     def match_and_advance(self, expected_tokens, token_type):
+        raw_token = self.tokens[self.current_index] if self.current_index < len(self.tokens) else None
+        print(f"Debug: raw_token={raw_token}, index={self.current_index}")
         print(f"match_and_advance: index={self.current_index}, expected={expected_tokens}, found={self.peek_next_token()}, lexeme={self.lexemes[self.current_index] if self.current_index < len(self.lexemes) else 'None'}, line={self.current_line}")
         if self.peek_next_token() not in expected_tokens:
             raise ValueError(f"Line {self.current_line}: Expected {token_type}, found '{self.peek_next_token()}'")
@@ -1955,7 +1959,7 @@ class SemanticAnalyzer:
             try:
                 self.current_line = int(float(self.lines[self.current_index - 1]))
             except (ValueError, TypeError):
-                pass  # Keep current_line if lines[self.current_index - 1] is invalid
+                pass
         print(f"match_and_advance: Advanced to index={self.current_index}, new_line={self.current_line}")
 
     def get_current_token(self):
